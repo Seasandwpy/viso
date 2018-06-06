@@ -45,6 +45,10 @@ class FrameSequence
         {
           handler_->OnNewFrame(std::make_shared<Keyframe>(frame));
         }
+        else
+        {
+          std::cerr << "Cannot open file " << file << "\n";
+        }
     };
 
   private:
