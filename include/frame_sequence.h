@@ -1,5 +1,9 @@
 
+#ifndef VISO_FRAME_SEQUENCE_H
+#define VISO_FRAME_SEQUENCE_H
+
 #include <string>
+#include <memory>
 
 #include "types.h"
 #include "keyframe.h"
@@ -9,12 +13,13 @@ class FrameSequence
   public:
     class FrameHandler
     {
+    public:
         virtual void OnNewFrame(Keyframe::Ptr keyframe) = 0;
     };
 
     FrameSequence(std::string location,
                   FrameHandler *handler) : location_(location),
-                                           handler_(handler))
+                                           handler_(handler)
     {
     }
 
@@ -38,7 +43,7 @@ class FrameSequence
 
         if (success)
         {
-            OnNewFrame(std::make_shared<Keyframe>(frame));
+          handler_->OnNewFrame(std::make_shared<Keyframe>(frame));
         }
     };
 
@@ -46,3 +51,5 @@ class FrameSequence
     std::string location_;
     FrameHandler *handler_;
 };
+
+#endif

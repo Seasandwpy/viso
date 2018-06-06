@@ -2,15 +2,16 @@
 #include <iostream>
 #include "viso.h"
 #include "common.h"
+#include <pangolin/pangolin.h>
 
 struct PangoState
 {
     pangolin::OpenGlRenderState s_cam;
     pangolin::View d_cam;
-}
+};
 
 void
-DrawMap(const vector<V3d> &points);
+DrawMap(PangoState *pango, const std::vector<V3d> &points);
 
 int main(int argc, char const *argv[])
 {
@@ -37,18 +38,18 @@ int main(int argc, char const *argv[])
     //
 
     Viso viso(200.0, 200.0, 240.0, 240.0);
-    FrameSequence sequence(&viso, "");
+    FrameSequence sequence("", &viso);
 
-    while (true)
+    while (!pangolin::ShouldQuit())
     {
         sequence.RunOnce();
-        DrawMap(&pange_state, viso.GetMap());
+        DrawMap(&pango_state, viso.GetMap());
     }
 
     return 0;
 }
 
-void DrawMap(PangoState *pango, const vector<V3d> &points)
+void DrawMap(PangoState *pango, const std::vector<V3d> &points)
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     pango->d_cam.Activate(pango->s_cam);

@@ -1,49 +1,45 @@
 #include "viso.h"
+#include "common.h"
+#include <opencv2/core/eigen.hpp>
 
-void Viso::OnNewKeyframe(Keyframe::Ptr current_frame)
-{
-    const int nr_features = 100;
-    const int nr_frames = 30;
 
-    switch (state_)
-    {
+void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
+  const int nr_features = 1000;
+
+  switch (state_) {
     case kInitialization:
-        if (GetCurrentFrameId() != 0)
-        {
-            vector<bool> success;
-            OpticalFlowMultiLevel(last_frame,
-                                  current_frame, last_frame->Keypoints(), current_frame->Keypoints(), success);
+      if (current_frame->GetId() != 0) {
+        std::vector<bool> success;
+        OpticalFlowMultiLevel(last_frame->Mat(),
+                              current_frame->Mat(), last_frame->Keypoints(), current_frame->Keypoints(), success, true);
 
-            vector<V3d> p1_success;
-            vector<V3d> p2_success;
+        std::vector<V3d> p1_success;
+        std::vector<V3d> p2_success;
 
-            for (int i = 0; i < kp2.size(); i++)
-            {
-                if (success[i])
-                {
-                    p1_success.push_back(K_inv * V3d{last_frame->Keypoints()[i].pt.x, last_frame->Keypoints()[i].pt.y, 1});
-                    p2_success.push_back(K_inv * V3d{current_frame->Keypoints()[i].pt.x, current_frame->Keypoints()[i].pt.y, 1});
-                }
-            }
-
-            PoseEstimation2d2d(kp1, kp2, current_frame->R(), current_frame->T(), 200.0, 200.0, 240, 240);
-            ReconstructPoints(scale, current_frame->R(), current_frame->T(), p1_success, p2_success, map_);
-
-            state_ = kRunning;
-        }
-        else
-        {
-            Ptr<GFTTDetector> detector = GFTTDetector::create(nr_features, 0.01, 20);
-            detector->detect(current_frame->Mat(), current_frame->Keypoints());
+        for (int i = 0; i < current_frame->Keypoints().size(); i++) {
+          if (success[i]) {
+            p1_success.emplace_back(K_inv * V3d{last_frame->Keypoints()[i].pt.x, last_frame->Keypoints()[i].pt.y, 1});
+            p2_success.emplace_back(
+              K_inv * V3d{current_frame->Keypoints()[i].pt.x, current_frame->Keypoints()[i].pt.y, 1});
+          }
         }
 
-        break;
+        PoseEstimation2d2d(p1_success, p2_success, current_frame->R(), current_frame->T());
+        Reconstruct3DPoints(current_frame->R(), current_frame->T(), p1_success, p2_success, map_);
+
+        state_ = kRunning;
+      } else {
+        cv::Ptr<cv::GFTTDetector> detector = cv::GFTTDetector::create(nr_features, 0.01, 20);
+        detector->detect(current_frame->Mat(), current_frame->Keypoints());
+      }
+
+      break;
 
     default:
-        break;
-    }
+      break;
+  }
 
-    last_frame = frame;
+  last_frame = current_frame;
 }
 
 // 2D-2D pose estimation functions
@@ -55,16 +51,16 @@ void Viso::PoseEstimation2d2d(
     std::vector<cv::Point2f> kp1_;
     std::vector<cv::Point2f> kp2_;
 
-    for (int i = 0; i < keypoints_1.size(); ++i)
+  for (int i = 0; i < kp1.size(); ++i)
     {
-        kp1_.push_back({kp1[i].x(), kp1[i].y()});
-        kp2_.push_back({kp2[i].x(), kp2[i].y()});
+      kp1_.emplace_back({(float) kp1[i].x(), (float) kp1[i].y()});
+      kp2_.emplace_back({(float) kp2[i].x(), (float) kp2[i].y()});
     }
 
     // TODO: Remove this and implement own.
     cv::Mat essential = cv::findFundamentalMat(kp1_, kp2_);
     cv::Mat Rmat, tmat;
-    int rest = recoverPose(essential, keypoints_1_, keypoints_2_, Rmat, tmat, 1, {0, 0});
+  recoverPose(essential, kp1_, kp2_, Rmat, tmat, 1, {0, 0});
 
     cv::cv2eigen(Rmat, R);
     cv::cv2eigen(tmat, T);
@@ -94,12 +90,12 @@ void Viso::Reconstruct3DPoints(const M3d &R, const V3d &T,
 }
 
 void Viso::OpticalFlowSingleLevel(
-    const Mat &img1,
-    const Mat &img2,
-    const vector<KeyPoint> &kp1,
-    vector<KeyPoint> &kp2,
-    vector<bool> &success,
-    bool inverse)
+  const cv::Mat &img1,
+  const cv::Mat &img2,
+  const std::vector<cv::KeyPoint> &kp1,
+  std::vector<cv::KeyPoint> &kp2,
+  std::vector<bool> &success,
+  bool inverse)
 {
 
     // parameters
@@ -142,7 +138,7 @@ void Viso::OpticalFlowSingleLevel(
                     // TODO START YOUR CODE HERE (~8 lines)
                     double error = 0;
                     Eigen::Vector2d J; // Jacobian
-                    if (inverse == false)
+                  if (!inverse)
                     {
                         // Forward Jacobian
                         J = -GetImageGradient(img2, kp.pt.x + x + dx, kp.pt.y + y + dy);
@@ -168,10 +164,10 @@ void Viso::OpticalFlowSingleLevel(
             Eigen::Vector2d update = H.inverse() * b;
             // TODO END YOUR CODE HERE
 
-            if (isnan(update[0]))
+          if (std::isnan(update[0]))
             {
                 // sometimes occurred when we have a black or white patch and H is irreversible
-                cout << "update is nan" << endl;
+              std::cout << "update is nan" << std::endl;
                 succ = false;
                 break;
             }
@@ -193,24 +189,24 @@ void Viso::OpticalFlowSingleLevel(
         // set kp2
         if (have_initial)
         {
-            kp2[i].pt = kp.pt + Point2f(dx, dy);
+          kp2[i].pt = kp.pt + cv::Point2f((float) dx, (float) dy);
         }
         else
         {
-            KeyPoint tracked = kp;
-            tracked.pt += cv::Point2f(dx, dy);
+          cv::KeyPoint tracked = kp;
+          tracked.pt += cv::Point2f((float) dx, (float) dy);
             kp2.push_back(tracked);
         }
     }
 }
 
 void Viso::OpticalFlowMultiLevel(
-    const Mat &img1,
-    const Mat &img2,
-    const vector<KeyPoint> &kp1,
-    vector<KeyPoint> &kp2,
-    vector<bool> &success,
-    bool inverse)
+  const cv::Mat &img1,
+  const cv::Mat &img2,
+  const std::vector<cv::KeyPoint> &kp1,
+  std::vector<cv::KeyPoint> &kp2,
+  std::vector<bool> &success,
+  bool inverse)
 {
 
     // parameters
@@ -219,7 +215,7 @@ void Viso::OpticalFlowMultiLevel(
     double scales[] = {1.0, 0.5, 0.25, 0.125};
 
     // create pyramids
-    vector<Mat> pyr1, pyr2; // image pyramids
+  std::vector<cv::Mat> pyr1, pyr2; // image pyramids
     // TODO START YOUR CODE HERE (~8 lines)
     for (int i = 0; i < pyramids; i++)
     {
@@ -233,12 +229,14 @@ void Viso::OpticalFlowMultiLevel(
             {
                 {
                     cv::Mat down;
-                    cv::pyrDown(pyr1[i - 1], down, Size(pyr1[i - 1].cols * pyramid_scale, pyr1[i - 1].rows * pyramid_scale));
+                  cv::pyrDown(pyr1[i - 1], down,
+                              cv::Size(pyr1[i - 1].cols * pyramid_scale, pyr1[i - 1].rows * pyramid_scale));
                     pyr1.push_back(down);
                 }
                 {
                     cv::Mat down;
-                    cv::pyrDown(pyr2[i - 1], down, Size(pyr2[i - 1].cols * pyramid_scale, pyr2[i - 1].rows * pyramid_scale));
+                  cv::pyrDown(pyr2[i - 1], down,
+                              cv::Size(pyr2[i - 1].cols * pyramid_scale, pyr2[i - 1].rows * pyramid_scale));
                     pyr2.push_back(down);
                 }
             }
@@ -251,7 +249,7 @@ void Viso::OpticalFlowMultiLevel(
 
     for (int i = pyramids - 1; i >= 0; --i)
     {
-        vector<KeyPoint> kp1_ = kp1;
+      std::vector<cv::KeyPoint> kp1_ = kp1;
 
         for (int j = 0; j < kp1_.size(); ++j)
         {
@@ -259,7 +257,7 @@ void Viso::OpticalFlowMultiLevel(
             kp1_[j].size *= scales[i];
         }
 
-        vector<bool> success_single;
+      std::vector<bool> success_single;
         OpticalFlowSingleLevel(pyr1[i], pyr2[i], kp1_, kp2, success_single, true);
 
         success = success_single;

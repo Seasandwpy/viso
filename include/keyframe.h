@@ -1,15 +1,19 @@
 
 
+#ifndef VISO_KEYFRAME_H
+#define VISO_KEYFRAME_H
+
 #include "types.h"
 #include <memory>
+#include <opencv2/opencv.hpp>
 
 class Keyframe
 {
 private:
-  static long next_id_ = 0;
+  static long next_id_;
   cv::Mat mat_;
   long id_;
-  std::vector<cv::Keypoint> keypoints_;
+  std::vector<cv::KeyPoint> keypoints_;
   M3d R_;
   V3d T_;
 
@@ -19,7 +23,7 @@ public:
   Keyframe(cv::Mat mat) : mat_(mat)
   {
     id_ = next_id_;
-    next_id++;
+    next_id_++;
 
     R_ = M3d::Identity();
     T_ = V3d::Zero();
@@ -29,14 +33,14 @@ public:
 
   inline double GetPixelValue(const double &x, const double &y)
   {
-    U8 *data = &mat.data[int(y) * mat.step + int(x)];
+    U8 *data = &mat_.data[int(y) * mat_.step + int(x)];
     double xx = x - floor(x);
     double yy = y - floor(y);
     return double(
         (1 - xx) * (1 - yy) * data[0] +
         xx * (1 - yy) * data[1] +
-        (1 - xx) * yy * data[mat.step] +
-        xx * yy * data[mat.step + 1]);
+        (1 - xx) * yy * data[mat_.step] +
+        xx * yy * data[mat_.step + 1]);
   }
 
   inline V2d GetGradient(const double &u, const double &v)
@@ -51,7 +55,7 @@ public:
     return id_;
   }
 
-  inline std::vector<cv::Keypoint> &Keypoints() { return keypoints_; }
+  inline std::vector<cv::KeyPoint> &Keypoints() { return keypoints_; }
   inline cv::Mat Mat() { return mat_; }
   inline M3d &R() { return R_; }
   inline V3d &T() { return T_; }
@@ -61,3 +65,5 @@ public:
     return next_id_;
   }
 };
+
+#endif

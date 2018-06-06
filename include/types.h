@@ -2,8 +2,8 @@
 // Created by sage on 04.06.18.
 //
 
-#ifndef FINAL_TYPES_H
-#define FINAL_TYPES_H
+#ifndef VISO_TYPES_H
+#define VISO_TYPES_H
 
 using U8 = unsigned char;
 
@@ -32,4 +32,4 @@ using V2i = Eigen::Vector2i;
 
 #include <opencv2/opencv.hpp>
 
-#endif //FINAL_TYPES_H
+#endif
