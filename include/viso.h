@@ -31,7 +31,7 @@ public:
 
   ~Viso() = default;
 
-  override void OnNewFrame(Keyframe::Ptr keyframe);
+  void OnNewFrame(Keyframe::Ptr keyframe);
 
   inline const std::vector<V3d> &GetMap() { return map_; }
 

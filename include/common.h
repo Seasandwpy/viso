@@ -42,5 +42,13 @@ inline V2d GetImageGradient(const cv::Mat &mat, const double &u, const double &v
   return V2d(dx, dy);
 }
 
+inline double GetImageGradientX(const cv::Mat &mat, const double &u, const double &v) {
+  return 0.5 * (GetPixelValue(mat, u + 1, v) - GetPixelValue(mat, u - 1, v));
+}
+
+inline double GetImageGradientY(const cv::Mat &mat, const double &u, const double &v) {
+  return 0.5 * (GetPixelValue(mat, u, v + 1) - GetPixelValue(mat, u, v - 1));
+}
+
 
 #endif //FINAL_COMMON_H

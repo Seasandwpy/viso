@@ -1,5 +1,6 @@
 #include "viso.h"
 #include "common.h"
+#include "timer.h"
 #include <opencv2/core/eigen.hpp>
 
 
@@ -10,22 +11,41 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
     case kInitialization:
       if (current_frame->GetId() != 0) {
         std::vector<bool> success;
+
+        Timer timer;
         OpticalFlowMultiLevel(last_frame->Mat(),
                               current_frame->Mat(), last_frame->Keypoints(), current_frame->Keypoints(), success, true);
+        std::cout << "OpticalFlowMultiLevel elapsed: " << timer.GetElapsed() << "\n";
+        timer.Reset();
 
         std::vector<V3d> p1_success;
         std::vector<V3d> p2_success;
+
+        cv::Mat img;
+        cv::cvtColor(current_frame->Mat(), img, CV_GRAY2BGR);
 
         for (int i = 0; i < current_frame->Keypoints().size(); i++) {
           if (success[i]) {
             p1_success.emplace_back(K_inv * V3d{last_frame->Keypoints()[i].pt.x, last_frame->Keypoints()[i].pt.y, 1});
             p2_success.emplace_back(
               K_inv * V3d{current_frame->Keypoints()[i].pt.x, current_frame->Keypoints()[i].pt.y, 1});
+            cv::circle(img, current_frame->Keypoints()[i].pt, 2, cv::Scalar(0, 250, 0), 2);
+            cv::line(img, last_frame->Keypoints()[i].pt, current_frame->Keypoints()[i].pt, cv::Scalar(0, 250, 0));
           }
         }
 
+        cv::imshow("Optical flow", img);
+        cv::waitKey(0);
+
         PoseEstimation2d2d(p1_success, p2_success, current_frame->R(), current_frame->T());
+
+        std::cout << "PoseEstimation2d2d elapsed: " << timer.GetElapsed() << "\n";
+        timer.Reset();
+
         Reconstruct3DPoints(current_frame->R(), current_frame->T(), p1_success, p2_success, map_);
+
+        std::cout << "Reconstruct3DPoints elapsed: " << timer.GetElapsed() << "\n";
+        timer.Reset();
 
         state_ = kRunning;
       } else {
@@ -53,8 +73,8 @@ void Viso::PoseEstimation2d2d(
 
   for (int i = 0; i < kp1.size(); ++i)
     {
-      kp1_.emplace_back({(float) kp1[i].x(), (float) kp1[i].y()});
-      kp2_.emplace_back({(float) kp2[i].x(), (float) kp2[i].y()});
+      kp1_.push_back({(float) kp1[i].x(), (float) kp1[i].y()});
+      kp2_.push_back({(float) kp2[i].x(), (float) kp2[i].y()});
     }
 
     // TODO: Remove this and implement own.
@@ -135,9 +155,8 @@ void Viso::OpticalFlowSingleLevel(
                 for (int y = -half_patch_size; y < half_patch_size; y++)
                 {
 
-                    // TODO START YOUR CODE HERE (~8 lines)
                     double error = 0;
-                    Eigen::Vector2d J; // Jacobian
+                  V2d J; // Jacobian
                   if (!inverse)
                     {
                         // Forward Jacobian
@@ -156,13 +175,9 @@ void Viso::OpticalFlowSingleLevel(
                     H += J * J.transpose();
                     b += -J * error;
                     cost += error * error;
-                    // TODO END YOUR CODE HERE
                 }
 
-            // compute update
-            // TODO START YOUR CODE HERE (~1 lines)
             Eigen::Vector2d update = H.inverse() * b;
-            // TODO END YOUR CODE HERE
 
           if (std::isnan(update[0]))
             {
@@ -209,6 +224,22 @@ void Viso::OpticalFlowMultiLevel(
   bool inverse)
 {
 
+  std::vector<uchar> status;
+  std::vector<float> error;
+  std::vector<cv::Point2f> pt1, pt2;
+  for (auto &kp: kp1) pt1.push_back(kp.pt);
+
+  cv::calcOpticalFlowPyrLK(img1, img2,
+                           pt1, pt2,
+                           status, error,
+                           cv::Size2i(8, 8));
+  for (int i = 0; i < status.size(); ++i) {
+    success.push_back(status[i] > 0);
+  }
+
+  for (auto &p: pt2) kp2.push_back(cv::KeyPoint(p, 0));
+
+#if 0
     // parameters
     int pyramids = 4;
     double pyramid_scale = 0.5;
@@ -257,9 +288,12 @@ void Viso::OpticalFlowMultiLevel(
             kp1_[j].size *= scales[i];
         }
 
+        Timer timer;
+
       std::vector<bool> success_single;
         OpticalFlowSingleLevel(pyr1[i], pyr2[i], kp1_, kp2, success_single, true);
 
+        std::cout << "OpticalFlowSingleLevel elapsed " << timer.GetElapsed() << "\n";
         success = success_single;
 
         if (i != 0)
@@ -271,7 +305,7 @@ void Viso::OpticalFlowMultiLevel(
             }
         }
     }
-
+#endif
     // TODO END YOUR CODE HERE
     // don't forget to set the results into kp2
 }
