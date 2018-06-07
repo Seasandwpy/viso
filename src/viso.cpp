@@ -3,9 +3,8 @@
 #include "timer.h"
 #include <opencv2/core/eigen.hpp>
 
-
 void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
-  const int nr_features = 1000;
+  const int nr_features = 150;
 
   switch (state_) {
     case kInitialization:
@@ -18,16 +17,16 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
         std::cout << "OpticalFlowMultiLevel elapsed: " << timer.GetElapsed() << "\n";
         timer.Reset();
 
-        std::vector<V3d> p1_success;
-        std::vector<V3d> p2_success;
+        std::vector<V3d> p1;
+        std::vector<V3d> p2;
 
         cv::Mat img;
         cv::cvtColor(current_frame->Mat(), img, CV_GRAY2BGR);
 
         for (int i = 0; i < current_frame->Keypoints().size(); i++) {
           if (success[i]) {
-            p1_success.emplace_back(K_inv * V3d{last_frame->Keypoints()[i].pt.x, last_frame->Keypoints()[i].pt.y, 1});
-            p2_success.emplace_back(
+            p1.emplace_back(K_inv * V3d{last_frame->Keypoints()[i].pt.x, last_frame->Keypoints()[i].pt.y, 1});
+            p2.emplace_back(
               K_inv * V3d{current_frame->Keypoints()[i].pt.x, current_frame->Keypoints()[i].pt.y, 1});
             cv::circle(img, current_frame->Keypoints()[i].pt, 2, cv::Scalar(0, 250, 0), 2);
             cv::line(img, last_frame->Keypoints()[i].pt, current_frame->Keypoints()[i].pt, cv::Scalar(0, 250, 0));
@@ -35,20 +34,30 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
         }
 
         cv::imshow("Optical flow", img);
-        cv::waitKey(0);
 
-        PoseEstimation2d2d(p1_success, p2_success, current_frame->R(), current_frame->T());
+        std::vector<bool> inliers;
+        int nr_inliers = 0;
+        PoseEstimation2d2d(p1, p2, current_frame->R(), current_frame->T(), inliers, nr_inliers);
+
 
         std::cout << "PoseEstimation2d2d elapsed: " << timer.GetElapsed() << "\n";
         timer.Reset();
 
-        Reconstruct3DPoints(current_frame->R(), current_frame->T(), p1_success, p2_success, map_);
+        std::cout << "Tracked points: " << p1.size() << ", Inliers: " << nr_inliers << "\n";
 
-        std::cout << "Reconstruct3DPoints elapsed: " << timer.GetElapsed() << "\n";
-        timer.Reset();
+        cv::waitKey(10);
+        const double thresh = 0.9;
+        if (p1.size() > 130 && nr_inliers > 0 && (nr_inliers / (double) p1.size()) > thresh) {
+          std::cout << "Initialized!\n";
+          Reconstruct3DPoints(current_frame->R(), current_frame->T(), p1, p2, map_, inliers, nr_inliers);
+          std::cout << "Reconstruct3DPoints elapsed: " << timer.GetElapsed() << "\n";
+          timer.Reset();
+          state_ = kRunning;
+        }
 
-        state_ = kRunning;
-      } else {
+      }
+      //else
+      {
         cv::Ptr<cv::GFTTDetector> detector = cv::GFTTDetector::create(nr_features, 0.01, 20);
         detector->detect(current_frame->Mat(), current_frame->Keypoints());
       }
@@ -64,9 +73,9 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
 
 // 2D-2D pose estimation functions
 void Viso::PoseEstimation2d2d(
-    std::vector<V3d> kp1,
-    std::vector<V3d> kp2,
-    M3d &R, V3d &T)
+  std::vector<V3d> kp1,
+  std::vector<V3d> kp2,
+  M3d &R, V3d &T, std::vector<bool> &inliers, int &nr_inliers)
 {
     std::vector<cv::Point2f> kp1_;
     std::vector<cv::Point2f> kp2_;
@@ -77,10 +86,28 @@ void Viso::PoseEstimation2d2d(
       kp2_.push_back({(float) kp2[i].x(), (float) kp2[i].y()});
     }
 
-    // TODO: Remove this and implement own.
-    cv::Mat essential = cv::findFundamentalMat(kp1_, kp2_);
+  Timer timer;
+
+  cv::Mat outlier_mask;
+  cv::Mat essential = cv::findFundamentalMat(kp1_, kp2_, CV_FM_RANSAC, 3.0, 0.99, outlier_mask);
+
+  std::cout << "findFundamentalMat elapsed " << timer.GetElapsed() << "\n";
+  timer.Reset();
+
     cv::Mat Rmat, tmat;
-  recoverPose(essential, kp1_, kp2_, Rmat, tmat, 1, {0, 0});
+
+  // This method does the depth check. Only users points which are not masked out by
+  // the outlier mask.
+  recoverPose(essential, kp1_, kp2_, Rmat, tmat, 1.0, {}, outlier_mask);
+
+  std::cout << "recoverPose elapsed " << timer.GetElapsed() << "\n";
+  timer.Reset();
+
+  inliers = std::vector<bool>(kp1.size());
+  for (int i = 0; i < inliers.size(); ++i) {
+    inliers[i] = outlier_mask.at<bool>(i) > 0;
+    nr_inliers += inliers[i];
+  }
 
     cv::cv2eigen(Rmat, R);
     cv::cv2eigen(tmat, T);
@@ -88,25 +115,37 @@ void Viso::PoseEstimation2d2d(
 
 void Viso::Reconstruct3DPoints(const M3d &R, const V3d &T,
                                const std::vector<V3d> &points1, const std::vector<V3d> &points2,
-                               std::vector<V3d> &points3d)
-{
-    int n = points1.size();
-
-    Eigen::MatrixXd M = Eigen::MatrixXd::Zero(3 * n, n + 1);
-    for (int i = 0; i < n; ++i)
+                               std::vector<V3d> &points3d, const std::vector<bool> &inliers, const int &nr_inliers) {
+  Eigen::MatrixXd M = Eigen::MatrixXd::Zero(3 * nr_inliers, nr_inliers + 1);
+  int j;
+  for (int i = 0, j = 0; i < points1.size(); ++i)
     {
-        M.block<3, 1>(i * 3, i) = Hat(points2[i]) * R * points1[i];
-        M.block<3, 1>(i * 3, n) = Hat(points2[i]) * T;
+      if (inliers[i]) {
+        M.block<3, 1>(j * 3, j) = Hat(points2[i]) * R * points1[i];
+        M.block<3, 1>(j * 3, nr_inliers) = Hat(points2[i]) * T;
+        ++j;
+      }
     }
 
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(M, Eigen::ComputeThinU | Eigen::ComputeThinV);
     Eigen::MatrixXd V = svd.matrixV();
 
-    points3d = points1;
-    for (int i = 0; i < n; ++i)
+  points3d.clear();
+
+  for (int i = 0, j = 0; i < points1.size(); ++i)
     {
-        points3d[i] *= V(i, n);
+      if (inliers[i]) {
+        points3d.push_back(points1[i] * V(j, nr_inliers));
+        ++j;
+      }
     }
+
+  double projection_error = 0.0;
+  for (int i = 0; i < nr_inliers; ++i) {
+    projection_error += std::sqrt(points3d[i].x() * points3d[i].x() + points3d[i].y() * points3d[i].y());
+  }
+
+  std::cout << "Projection error: " << projection_error << "\n";
 }
 
 void Viso::OpticalFlowSingleLevel(
@@ -221,13 +260,13 @@ void Viso::OpticalFlowMultiLevel(
   const std::vector<cv::KeyPoint> &kp1,
   std::vector<cv::KeyPoint> &kp2,
   std::vector<bool> &success,
-  bool inverse)
-{
+  bool inverse) {
 
   std::vector<uchar> status;
   std::vector<float> error;
   std::vector<cv::Point2f> pt1, pt2;
-  for (auto &kp: kp1) pt1.push_back(kp.pt);
+  for (auto &kp : kp1)
+    pt1.push_back(kp.pt);
 
   cv::calcOpticalFlowPyrLK(img1, img2,
                            pt1, pt2,
@@ -237,7 +276,8 @@ void Viso::OpticalFlowMultiLevel(
     success.push_back(status[i] > 0);
   }
 
-  for (auto &p: pt2) kp2.push_back(cv::KeyPoint(p, 0));
+  for (auto &p : pt2)
+    kp2.push_back(cv::KeyPoint(p, 0));
 
 #if 0
     // parameters
@@ -308,4 +348,40 @@ void Viso::OpticalFlowMultiLevel(
 #endif
     // TODO END YOUR CODE HERE
     // don't forget to set the results into kp2
+}
+
+// We want to find the 4d-coorindates of point P = (P1, P2, P3, 1)^T.
+// lambda1 * x1 = Pi1 * P
+// lambda2 * x2 = Pi2 * P
+//
+// I:   lambda1 * x11 = Pi11 * P
+// II:  lambda1 * x12 = Pi12 * P
+// III: lambda1       = Pi13 * P
+//
+// III in I and II
+// I':   Pi13 * P * x11 = Pi11 * P
+// II':  Pi13 * P * x12 = Pi12 * P
+//
+// I'':   (x11 * Pi13  - Pi11) * P = 0
+// II'':  (x12 * Pi13  - Pi12) * p = 0
+//
+// We get another set of two equations from lambda2 * x2 = Pi2 * P.
+// Finally we can construct a 4x4 matrix A such that A * P = 0
+// A = [[x11 * Pi13  - Pi11];
+//      [x12 * Pi13  - Pi12];
+//      [x21 * Pi23  - Pi21];
+//      [x22 * Pi13  - Pi22]];
+void Viso::Triangulate(const M34d &Pi1, const M34d &Pi2, const V3d &x1, const V3d &x2, V3d &P) {
+  M4d A = M4d::Zero();
+  A.row(0) = x1.x() * Pi1.row(2) - Pi1.row(0);
+  A.row(1) = x1.y() * Pi1.row(2) - Pi1.row(1);
+  A.row(2) = x2.x() * Pi2.row(2) - Pi2.row(0);
+  A.row(3) = x2.y() * Pi2.row(2) - Pi2.row(1);
+
+  Eigen::JacobiSVD<M4d> svd(A, Eigen::ComputeFullV);
+  M4d V = svd.matrixV();
+
+  // The solution is the last column V. This gives us a homogeneous
+  // point, so we need to normalize.
+  P = V.col(3).block<3, 1>(0, 0) / V(3, 3);
 }

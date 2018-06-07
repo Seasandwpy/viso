@@ -26,17 +26,7 @@ class FrameSequence
     void RunOnce()
     {
         bool success = true;
-        std::string file = "000000";
-
-        {
-            std::string tmp = std::to_string(Keyframe::GetNextId());
-            for (int i = 0; i < tmp.size(); ++i)
-            {
-                file[file.size() - tmp.size() + i] = tmp[i];
-            }
-        }
-
-        file = file + ".png";
+      std::string file = std::to_string(Keyframe::GetNextId() + 1) + ".png";
 
         cv::Mat frame = cv::imread(file, 0);
         success = (frame.data != NULL);

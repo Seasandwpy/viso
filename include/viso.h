@@ -42,12 +42,15 @@ private:
   void PoseEstimation2d2d(
     std::vector<V3d> points1,
     std::vector<V3d> points2,
-    M3d &R, V3d &T);
+    M3d &R, V3d &T, std::vector<bool> &inliers, int &nr_inliers);
 
   // Same as above.
   void Reconstruct3DPoints(const M3d &R, const V3d &T,
                            const std::vector<V3d> &points1, const std::vector<V3d> &points2,
-                           std::vector<V3d> &points3d);
+                           std::vector<V3d> &points3d, const std::vector<bool> &inliers, const int &nr_inliers);
+
+  // Triangulation, see paper "Triangulation", Section 5.1, by Richard I. Hartley, Peter Sturm
+  void Triangulate(const M34d &Pi1, const M34d &Pi2, const V3d &x1, const V3d &x2, V3d &P);
 
   void OpticalFlowSingleLevel(
     const cv::Mat &img1,
