@@ -4,7 +4,7 @@
 #include <opencv2/core/eigen.hpp>
 
 void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
-  const int nr_features = 150;
+  const int nr_features = 300;
 
   switch (state_) {
     case kInitialization:
@@ -14,7 +14,7 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
         Timer timer;
         OpticalFlowMultiLevel(last_frame->Mat(),
                               current_frame->Mat(), last_frame->Keypoints(), current_frame->Keypoints(), success, true);
-        std::cout << "OpticalFlowMultiLevel elapsed: " << timer.GetElapsed() << "\n";
+        //std::cout << "OpticalFlowMultiLevel elapsed: " << timer.GetElapsed() << "\n";
         timer.Reset();
 
         std::vector<V3d> p1;
@@ -40,17 +40,17 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
         PoseEstimation2d2d(p1, p2, current_frame->R(), current_frame->T(), inliers, nr_inliers);
 
 
-        std::cout << "PoseEstimation2d2d elapsed: " << timer.GetElapsed() << "\n";
-        timer.Reset();
+        //std::cout << "PoseEstimation2d2d elapsed: " << timer.GetElapsed() << "\n";
+        //timer.Reset();
 
         std::cout << "Tracked points: " << p1.size() << ", Inliers: " << nr_inliers << "\n";
 
         cv::waitKey(10);
         const double thresh = 0.9;
-        if (p1.size() > 130 && nr_inliers > 0 && (nr_inliers / (double) p1.size()) > thresh) {
+        if (p1.size() > 100 && nr_inliers > 0 && (nr_inliers / (double) p1.size()) > thresh) {
           std::cout << "Initialized!\n";
           Reconstruct3DPoints(current_frame->R(), current_frame->T(), p1, p2, map_, inliers, nr_inliers);
-          std::cout << "Reconstruct3DPoints elapsed: " << timer.GetElapsed() << "\n";
+          //std::cout << "Reconstruct3DPoints elapsed: " << timer.GetElapsed() << "\n";
           timer.Reset();
           state_ = kRunning;
         }
@@ -91,7 +91,7 @@ void Viso::PoseEstimation2d2d(
   cv::Mat outlier_mask;
   cv::Mat essential = cv::findFundamentalMat(kp1_, kp2_, CV_FM_RANSAC, 3.0, 0.99, outlier_mask);
 
-  std::cout << "findFundamentalMat elapsed " << timer.GetElapsed() << "\n";
+  //std::cout << "findFundamentalMat elapsed " << timer.GetElapsed() << "\n";
   timer.Reset();
 
     cv::Mat Rmat, tmat;
@@ -100,7 +100,7 @@ void Viso::PoseEstimation2d2d(
   // the outlier mask.
   recoverPose(essential, kp1_, kp2_, Rmat, tmat, 1.0, {}, outlier_mask);
 
-  std::cout << "recoverPose elapsed " << timer.GetElapsed() << "\n";
+  //std::cout << "recoverPose elapsed " << timer.GetElapsed() << "\n";
   timer.Reset();
 
   inliers = std::vector<bool>(kp1.size());
@@ -159,7 +159,7 @@ void Viso::OpticalFlowSingleLevel(
 
     // parameters
     int half_patch_size = 4;
-    int iterations = 10;
+  int iterations = 100;
     bool have_initial = !kp2.empty();
 
     for (size_t i = 0; i < kp1.size(); i++)
@@ -262,24 +262,27 @@ void Viso::OpticalFlowMultiLevel(
   std::vector<bool> &success,
   bool inverse) {
 
+#if 0
   std::vector<uchar> status;
   std::vector<float> error;
   std::vector<cv::Point2f> pt1, pt2;
   for (auto &kp : kp1)
-    pt1.push_back(kp.pt);
+      pt1.push_back(kp.pt);
 
   cv::calcOpticalFlowPyrLK(img1, img2,
                            pt1, pt2,
                            status, error,
                            cv::Size2i(8, 8));
-  for (int i = 0; i < status.size(); ++i) {
-    success.push_back(status[i] > 0);
+  for (int i = 0; i < status.size(); ++i)
+  {
+      success.push_back(status[i] > 0);
   }
 
   for (auto &p : pt2)
-    kp2.push_back(cv::KeyPoint(p, 0));
+      kp2.push_back(cv::KeyPoint(p, 0));
+#endif
 
-#if 0
+#if 1
     // parameters
     int pyramids = 4;
     double pyramid_scale = 0.5;
@@ -333,7 +336,7 @@ void Viso::OpticalFlowMultiLevel(
       std::vector<bool> success_single;
         OpticalFlowSingleLevel(pyr1[i], pyr2[i], kp1_, kp2, success_single, true);
 
-        std::cout << "OpticalFlowSingleLevel elapsed " << timer.GetElapsed() << "\n";
+      //std::cout << "OpticalFlowSingleLevel elapsed " << timer.GetElapsed() << "\n";
         success = success_single;
 
         if (i != 0)
