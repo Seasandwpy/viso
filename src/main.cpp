@@ -39,8 +39,8 @@ int main(int argc, char const *argv[])
 
 //    Viso viso(200.0, 200.0, 240.0, 240.0);
 //    FrameSequence sequence("", &viso);
-    Viso viso(1280.0, 1024.0, 640.0, 480.0);
-    FrameSequence sequence("sequence_44/", &viso);
+    Viso viso(517.3, 516.5, 325.1, 249.7);
+    FrameSequence sequence("rgb/", &viso);
 
     while (!pangolin::ShouldQuit())
     {

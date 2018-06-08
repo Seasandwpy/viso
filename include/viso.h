@@ -11,6 +11,7 @@ private:
   /* data */
   M3d K;
   M3d K_inv;
+  Keyframe::Ptr ref_frame;
 
   std::vector<V3d> map_;
   Keyframe::Ptr last_frame;

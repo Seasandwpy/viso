@@ -31,13 +31,15 @@ class FrameSequence
         cv::Mat frame = cv::imread(file, 0);
         success = (frame.data != NULL);
 
+
+
         if (success)
         {
           handler_->OnNewFrame(std::make_shared<Keyframe>(frame));
         }
         else
         {
-          std::cerr << "Cannot open file " << file << "\n";
+          //std::cerr << "Cannot open file " << file << "\n";
         }
     };
 

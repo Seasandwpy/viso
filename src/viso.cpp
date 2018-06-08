@@ -4,8 +4,12 @@
 #include <opencv2/core/eigen.hpp>
 
 void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
-  const int nr_features = 100;
+  const int nr_features = 50;
   static int max_inliers = 0;
+  const int reinitialize_after = 5;
+  static int frame_cnt = 0;
+  
+  frame_cnt++;
 
   switch (state_) {
     case kInitialization:
@@ -13,9 +17,9 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
         std::vector<bool> success;
 
         Timer timer;
-        OpticalFlowMultiLevel(last_frame->Mat(),
-                              current_frame->Mat(), last_frame->Keypoints(), current_frame->Keypoints(), success, true);
-        //std::cout << "OpticalFlowMultiLevel elapsed: " << timer.GetElapsed() << "\n";
+        OpticalFlowMultiLevel(ref_frame->Mat(),
+                              current_frame->Mat(), ref_frame->Keypoints(), current_frame->Keypoints(), success, true);
+
         timer.Reset();
 
         std::vector<V3d> p1;
@@ -26,10 +30,10 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
 
         for (int i = 0; i < current_frame->Keypoints().size(); i++) {
           if (success[i]) {
-            p1.emplace_back(K_inv * V3d{last_frame->Keypoints()[i].pt.x, last_frame->Keypoints()[i].pt.y, 1});
+            p1.emplace_back(K_inv * V3d{ref_frame->Keypoints()[i].pt.x, ref_frame->Keypoints()[i].pt.y, 1});
             p2.emplace_back(
               K_inv * V3d{current_frame->Keypoints()[i].pt.x, current_frame->Keypoints()[i].pt.y, 1});
-            cv::line(img, last_frame->Keypoints()[i].pt, current_frame->Keypoints()[i].pt, cv::Scalar(255, 0, 0));
+            cv::line(img, ref_frame->Keypoints()[i].pt, current_frame->Keypoints()[i].pt, cv::Scalar(255, 0, 0));
           }
         }
 
@@ -54,8 +58,8 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
         std::cout << "Tracked points: " << p1.size() << ", Inliers: " << nr_inliers << "(" << max_inliers << ")\n";
         
         cv::waitKey(10);
-        const double thresh = 0.8;
-        if (p1.size() > 50 && nr_inliers > 0 && (nr_inliers / (double) p1.size()) > thresh) {
+        const double thresh = 0.95;
+        if (p1.size() > 300 && nr_inliers > 0 && (nr_inliers / (double) p1.size()) > thresh) {
           std::cout << "Initialized!\n";
 
           //Reconstruct3DPoints(current_frame->R(), current_frame->T(), p1, p2, map_, inliers, nr_inliers);
@@ -68,13 +72,26 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
           //{         
           //  std::cout << map_[i] << "\n";
           //}
+
         }
 
+        if(frame_cnt > reinitialize_after) {
+          cv::FAST(current_frame->Mat(), current_frame->Keypoints(), nr_features);
+          std::cout << "Nr keypoints: " << current_frame->Keypoints().size() << "\n";
+
+          ref_frame = current_frame;
+
+          frame_cnt = 0;
+        }
       }
-      //else
+      else
       {
-        cv::Ptr<cv::GFTTDetector> detector = cv::GFTTDetector::create(nr_features, 0.01, 20);
-        detector->detect(current_frame->Mat(), current_frame->Keypoints());
+        //cv::Ptr<cv::FastFeatureDetector> detector = cv::FastFeatureDetector::create(nr_features);
+        //detector->detect(current_frame->Mat(), current_frame->Keypoints());
+        cv::FAST(current_frame->Mat(), current_frame->Keypoints(), nr_features);
+        std::cout << "Nr keypoints: " << current_frame->Keypoints().size() << "\n";
+
+        ref_frame = current_frame;
       }
 
       break;
@@ -82,8 +99,8 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
     default:
       break;
   }
-
-  last_frame = current_frame;
+        last_frame = current_frame;
+      
 }
 
 // 2D-2D pose estimation functions
@@ -137,6 +154,7 @@ void Viso::PoseEstimation2d2d(
     nr_inliers += inliers[i];
   }
 
+  std::cout << "Essential matrix inliers: " << nr_inliers << "\n";
 }
 
 void Viso::Reconstruct3DPoints(const M3d &R, const V3d &T,
@@ -165,13 +183,6 @@ void Viso::Reconstruct3DPoints(const M3d &R, const V3d &T,
         ++j;
       }
     }
-
-  double projection_error = 0.0;
-  for (int i = 0; i < nr_inliers; ++i) {
-    projection_error += std::sqrt(points3d[i].x() * points3d[i].x() + points3d[i].y() * points3d[i].y());
-  }
-
-  std::cout << "Projection error: " << projection_error << "\n";
 }
 
 void Viso::OpticalFlowSingleLevel(
@@ -288,7 +299,7 @@ void Viso::OpticalFlowMultiLevel(
   std::vector<bool> &success,
   bool inverse) {
 
-#if 0
+#if 1
   std::vector<uchar> status;
   std::vector<float> error;
   std::vector<cv::Point2f> pt1, pt2;
@@ -308,7 +319,7 @@ void Viso::OpticalFlowMultiLevel(
       kp2.push_back(cv::KeyPoint(p, 0));
 #endif
 
-#if 1
+#if 0
     // parameters
     int pyramids = 4;
     double pyramid_scale = 0.5;
