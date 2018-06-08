@@ -4,7 +4,7 @@ set(CMAKE_CXX_FLAGS "-std=c++11 -O2")
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 # opencv
-find_package(OpenCV 3 REQUIRED)
+find_package(OpenCV 3 REQUIRED PATHS /work/ros/kinetic/)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 # pangolin
