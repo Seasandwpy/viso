@@ -7,12 +7,19 @@
 
 #include "types.h"
 
-inline M4d MakeSE3(M3d R, V3d T)
+inline M4d MakeSE3(const M3d& R, const V3d& T)
 {
   M4d result = M4d::Zero();
   result.block<3, 3>(0, 0) = R;
   result.block<3, 1>(0, 3) = T;
   result(3, 3) = 1;
+  return result;
+}
+
+inline M34d MakePI0()
+{
+  M34d result = M34d::Zero();
+  result.block<3, 3>(0, 0) = M3d::Identity();
   return result;
 }
 

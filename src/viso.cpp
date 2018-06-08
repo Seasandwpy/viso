@@ -4,7 +4,8 @@
 #include <opencv2/core/eigen.hpp>
 
 void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
-  const int nr_features = 300;
+  const int nr_features = 100;
+  static int max_inliers = 0;
 
   switch (state_) {
     case kInitialization:
@@ -28,8 +29,7 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
             p1.emplace_back(K_inv * V3d{last_frame->Keypoints()[i].pt.x, last_frame->Keypoints()[i].pt.y, 1});
             p2.emplace_back(
               K_inv * V3d{current_frame->Keypoints()[i].pt.x, current_frame->Keypoints()[i].pt.y, 1});
-            cv::circle(img, current_frame->Keypoints()[i].pt, 2, cv::Scalar(0, 250, 0), 2);
-            cv::line(img, last_frame->Keypoints()[i].pt, current_frame->Keypoints()[i].pt, cv::Scalar(0, 250, 0));
+            cv::line(img, last_frame->Keypoints()[i].pt, current_frame->Keypoints()[i].pt, cv::Scalar(255, 0, 0));
           }
         }
 
@@ -43,16 +43,31 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame) {
         //std::cout << "PoseEstimation2d2d elapsed: " << timer.GetElapsed() << "\n";
         //timer.Reset();
 
-        std::cout << "Tracked points: " << p1.size() << ", Inliers: " << nr_inliers << "\n";
+	      
+         Reconstruct(p1, p2, current_frame->R(), current_frame->T(), inliers, nr_inliers, map_);
 
+        if(nr_inliers > max_inliers)
+        {
+          max_inliers = nr_inliers;
+        }
+
+        std::cout << "Tracked points: " << p1.size() << ", Inliers: " << nr_inliers << "(" << max_inliers << ")\n";
+        
         cv::waitKey(10);
-        const double thresh = 0.9;
-        if (p1.size() > 100 && nr_inliers > 0 && (nr_inliers / (double) p1.size()) > thresh) {
+        const double thresh = 0.8;
+        if (p1.size() > 50 && nr_inliers > 0 && (nr_inliers / (double) p1.size()) > thresh) {
           std::cout << "Initialized!\n";
-          Reconstruct3DPoints(current_frame->R(), current_frame->T(), p1, p2, map_, inliers, nr_inliers);
+
+          //Reconstruct3DPoints(current_frame->R(), current_frame->T(), p1, p2, map_, inliers, nr_inliers);
           //std::cout << "Reconstruct3DPoints elapsed: " << timer.GetElapsed() << "\n";
           timer.Reset();
           state_ = kRunning;
+
+          //std::cout << "Map:\n";
+          //for(int i = 0; i < map_.size(); ++i)
+          //{         
+          //  std::cout << map_[i] << "\n";
+          //}
         }
 
       }
@@ -89,7 +104,11 @@ void Viso::PoseEstimation2d2d(
   Timer timer;
 
   cv::Mat outlier_mask;
-  cv::Mat essential = cv::findFundamentalMat(kp1_, kp2_, CV_FM_RANSAC, 3.0, 0.99, outlier_mask);
+
+#if 1
+
+  double thresh = 1/std::sqrt(K(0,0)*K(0,0) + K(1,1)*K(1,1));
+  cv::Mat essential = cv::findFundamentalMat(kp1_, kp2_, CV_FM_RANSAC, thresh, 0.99, outlier_mask);
 
   //std::cout << "findFundamentalMat elapsed " << timer.GetElapsed() << "\n";
   timer.Reset();
@@ -100,6 +119,15 @@ void Viso::PoseEstimation2d2d(
   // the outlier mask.
   recoverPose(essential, kp1_, kp2_, Rmat, tmat, 1.0, {}, outlier_mask);
 
+  cv::cv2eigen(Rmat, R);
+  cv::cv2eigen(tmat, T);
+#endif
+
+#if 0
+  cv::Mat H = cv::findHomography(kp1_, kp2_, CV_RANSAC, 1.0, outlier_mask, 2000, 0.99);
+  RecoverPoseHomography(H, R, T);
+#endif
+
   //std::cout << "recoverPose elapsed " << timer.GetElapsed() << "\n";
   timer.Reset();
 
@@ -109,8 +137,6 @@ void Viso::PoseEstimation2d2d(
     nr_inliers += inliers[i];
   }
 
-    cv::cv2eigen(Rmat, R);
-    cv::cv2eigen(tmat, T);
 }
 
 void Viso::Reconstruct3DPoints(const M3d &R, const V3d &T,
@@ -135,7 +161,7 @@ void Viso::Reconstruct3DPoints(const M3d &R, const V3d &T,
   for (int i = 0, j = 0; i < points1.size(); ++i)
     {
       if (inliers[i]) {
-        points3d.push_back(points1[i] * V(j, nr_inliers));
+        points3d.push_back(points1[i] / V(j, nr_inliers));
         ++j;
       }
     }
@@ -388,3 +414,87 @@ void Viso::Triangulate(const M34d &Pi1, const M34d &Pi2, const V3d &x1, const V3
   // point, so we need to normalize.
   P = V.col(3).block<3, 1>(0, 0) / V(3, 3);
 }
+
+void Viso::Reconstruct(const std::vector<V3d>& p1,
+  const std::vector<V3d>& p2,
+  const M3d &R, const V3d &T, std::vector<bool> &inliers,   int &nr_inliers, std::vector<V3d>& points3d){
+
+  M34d Pi1 = MakePI0();
+  M34d Pi2 = MakePI0() * MakeSE3(R, T);
+
+  points3d.clear();
+
+  int j = 0;
+  for(int i = 0; i < p1.size(); ++i)
+  {         
+    if(inliers[i]) 
+    {
+      V3d P1;
+      Triangulate(Pi1, Pi2, p1[i], p2[i], P1);
+      V3d P1_proj = P1 / P1.z();
+      double dx = (P1_proj.x() - p1[i].x()) * K(0,0);
+      double dy = (P1_proj.y() - p1[i].y()) * K(1,1);
+      double projection_error = std::sqrt(dx * dx + dy * dy);
+
+      if(projection_error > 1.) {
+        inliers[i] = false;
+        nr_inliers--;
+        continue;
+      }            
+
+//      std::cout << "-----------------------------------------------\n";
+//      std::cout << P1 << "\n";
+//      std::cout << "projection error: " << projection_error << "\n";
+
+      V3d P2 = R*P1 + T;
+      V3d P2_proj = P2 / P2.z();
+      dx = (P2_proj.x() - p2[i].x()) * K(0,0);
+      dy = (P2_proj.y() - p2[i].y()) * K(1,1);
+      projection_error = std::sqrt(dx * dx + dy * dy);            
+//      std::cout << P2 << "\n";
+//      std::cout << "projection error: " << projection_error << "\n";
+
+      if(projection_error > 1.) {
+        inliers[i] = false;
+        nr_inliers--;
+        continue;
+      }          
+
+      points3d.push_back(P1);      
+    }       
+  }
+}
+
+void Viso::RecoverPoseHomography(const cv::Mat& H, M3d& R, V3d& T)
+{
+    cv::Mat pose = cv::Mat::eye(3, 4, CV_64FC1); //3x4 matrix
+    float norm1 = (float)norm(H.col(0)); 
+    float norm2 = (float)norm(H.col(1));
+    float tnorm = (norm1 + norm2) / 2.0f;
+
+    cv::Mat v1 = H.col(0);
+    cv::Mat v2 = pose.col(0);
+
+    cv::normalize(v1, v2); // Normalize the rotation
+
+    v1 = H.col(1);
+    v2 = pose.col(1);
+
+    cv::normalize(v1, v2);
+
+    v1 = pose.col(0);
+    v2 = pose.col(1);
+
+    cv::Mat v3 = v1.cross(v2);  //Computes the cross-product of v1 and v2
+    cv::Mat c2 = pose.col(2);
+    v3.copyTo(c2);      
+
+    pose.col(3) = H.col(2) / tnorm; //vector t [R|t]
+
+    cv::cv2eigen(pose.col(3), T);
+    cv::cv2eigen(pose(cv::Rect(0, 0, 3, 3)), R);
+}
+
+
+
+
