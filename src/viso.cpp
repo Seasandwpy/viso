@@ -38,8 +38,9 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
 
             std::vector<bool> inliers;
             int nr_inliers = 0;
+          std::vector<V3d> points3d;
             PoseEstimation2d2d(p1, p2, current_frame->R(), current_frame->T(), inliers, nr_inliers);
-            Reconstruct(p1, p2, current_frame->R(), current_frame->T(), inliers, nr_inliers, map_);
+          Reconstruct(p1, p2, current_frame->R(), current_frame->T(), inliers, nr_inliers, points3d);
 
             if (nr_inliers > max_inliers)
             {
@@ -70,12 +71,21 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
           if (p1.size() > 50 && nr_inliers > 0 && (nr_inliers / (double) p1.size()) > thresh)
             {
                 std::cout << "Initialized!\n";
+              map_.AddKeyframe(ref_frame);
+              int cnt = 0;
+              for (int i = 0; i < p1.size(); ++i) {
+                if (inliers[i]) {
+                  cv::Point2f kp1 = ref_frame->Keypoints()[kp_indices[i]].pt;
+                  map_.AddPoint(MapPoint(ref_frame, {kp1.x, kp1.y}, points3d[cnt]));
+                  ++cnt;
+                }
+              }
                 state_ = kRunning;
             }
 
             if (frame_cnt > reinitialize_after)
             {
-              cv::FAST(current_frame->Mat(), current_frame->Keypoints(), 60);
+              cv::FAST(current_frame->Mat(), current_frame->Keypoints(), fast_thresh);
                 ref_frame = current_frame;
                 frame_cnt = 0;
             }
@@ -85,7 +95,12 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
           cv::FAST(current_frame->Mat(), current_frame->Keypoints(), fast_thresh);
             ref_frame = current_frame;
         }
+        break;
 
+      case kRunning: {
+        M3d R = last_frame->R();
+        V3d T = last_frame->T();
+      }
         break;
 
     default:

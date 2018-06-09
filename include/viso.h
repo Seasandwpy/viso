@@ -4,6 +4,7 @@
 
 #include "keyframe.h"
 #include "frame_sequence.h"
+#include "map.h"
 
 class Viso : public FrameSequence::FrameHandler
 {
@@ -21,10 +22,11 @@ private:
 
   M3d K;
   M3d K_inv;
-  Keyframe::Ptr ref_frame;
 
-  std::vector<V3d> map_;
+  Keyframe::Ptr ref_frame;
   Keyframe::Ptr last_frame;
+
+  Map map_;
 
   State state_;
 
@@ -39,7 +41,13 @@ public:
 
   void OnNewFrame(Keyframe::Ptr keyframe);
 
-  inline const std::vector<V3d> &GetMap() { return map_; }
+  inline const std::vector<V3d> GetPoints() {
+    std::vector<V3d> points;
+    for (auto &p : map_.GetPoints()) {
+      points.push_back(p.world_pos);
+    }
+    return points;
+  }
 
 private:
   // |points1| and |points2| are observations on the image plane,

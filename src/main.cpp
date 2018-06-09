@@ -45,7 +45,7 @@ int main(int argc, char const *argv[])
     while (!pangolin::ShouldQuit())
     {
         sequence.RunOnce();
-        DrawMap(&pango_state, viso.GetMap());
+        DrawMap(&pango_state, viso.GetPoints());
     }
 
     return 0;
