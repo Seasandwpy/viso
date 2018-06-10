@@ -10,35 +10,36 @@
 
 class FrameSequence {
 public:
-  class FrameHandler {
+    class FrameHandler {
     public:
         virtual void OnNewFrame(Keyframe::Ptr keyframe) = 0;
     };
 
     FrameSequence(std::string location,
-                  FrameHandler *handler)
-      : location_(location), handler_(handler)
+        FrameHandler* handler)
+        : location_(location)
+        , handler_(handler)
     {
     }
 
     void RunOnce()
     {
         bool success = true;
-      std::string file = location_ + std::to_string(Keyframe::GetNextId() + 1) + ".png";
+        std::string file = location_ + std::to_string(Keyframe::GetNextId() + 1) + ".png";
 
         cv::Mat frame = cv::imread(file, 0);
         success = (frame.data != NULL);
 
-      if (success) {
-        handler_->OnNewFrame(std::make_shared<Keyframe>(frame));
-      } else {
-        //std::cerr << "Cannot open file " << file << "\n";
+        if (success) {
+            handler_->OnNewFrame(std::make_shared<Keyframe>(frame));
+        } else {
+            //std::cerr << "Cannot open file " << file << "\n";
         }
     };
 
 private:
     std::string location_;
-  FrameHandler *handler_;
+    FrameHandler* handler_;
 };
 
 #endif

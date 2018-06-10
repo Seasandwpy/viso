@@ -5,19 +5,19 @@
 
 class Map {
 private:
-  std::vector<Keyframe::Ptr> keyframes_;
-  std::vector<MapPoint> points_;
+    std::vector<Keyframe::Ptr> keyframes_;
+    std::vector<MapPoint> points_;
 
 public:
-  Map() = default;
+    Map() = default;
 
-  ~Map() = default;
+    ~Map() = default;
 
-  inline void AddKeyframe(Keyframe::Ptr keyframe) { keyframes_.push_back(keyframe); }
+    inline void AddKeyframe(Keyframe::Ptr keyframe) { keyframes_.push_back(keyframe); }
 
-  inline void AddPoint(MapPoint p) { points_.push_back(p); }
+    inline void AddPoint(MapPoint p) { points_.push_back(p); }
 
-  inline std::vector<Keyframe::Ptr> &Keyframes() { return keyframes_; }
+    inline std::vector<Keyframe::Ptr>& Keyframes() { return keyframes_; }
 
-  inline std::vector<MapPoint> GetPoints() { return points_; }
+    inline std::vector<MapPoint> GetPoints() { return points_; }
 };

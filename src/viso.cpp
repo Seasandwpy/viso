@@ -18,8 +18,8 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
             std::vector<bool> success;
             current_frame->Keypoints() = last_frame->Keypoints();
             OpticalFlowMultiLevel(ref_frame->Mat(), current_frame->Mat(),
-                                  ref_frame->Keypoints(), current_frame->Keypoints(),
-                                  success, true);
+                ref_frame->Keypoints(), current_frame->Keypoints(),
+                success, true);
 
             std::vector<V3d> p1;
             std::vector<V3d> p2;
@@ -28,10 +28,10 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
 
             for (int i = 0; i < current_frame->Keypoints().size(); i++) {
                 if (success[i]) {
-                    p1.emplace_back(K_inv * V3d{ref_frame->Keypoints()[i].pt.x,
-                                                ref_frame->Keypoints()[i].pt.y, 1});
-                    p2.emplace_back(K_inv * V3d{current_frame->Keypoints()[i].pt.x,
-                                                current_frame->Keypoints()[i].pt.y, 1});
+                    p1.emplace_back(K_inv * V3d{ ref_frame->Keypoints()[i].pt.x,
+                                                ref_frame->Keypoints()[i].pt.y, 1 });
+                    p2.emplace_back(K_inv * V3d{ current_frame->Keypoints()[i].pt.x,
+                                                current_frame->Keypoints()[i].pt.y, 1 });
                     kp_indices.push_back(i);
                 }
             }
@@ -40,9 +40,9 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
             int nr_inliers = 0;
             std::vector<V3d> points3d;
             PoseEstimation2d2d(p1, p2, current_frame->R(), current_frame->T(),
-                               inliers, nr_inliers);
+                inliers, nr_inliers);
             Reconstruct(p1, p2, current_frame->R(), current_frame->T(), inliers,
-                        nr_inliers, points3d);
+                nr_inliers, points3d);
 
             if (nr_inliers > max_inliers) {
                 max_inliers = nr_inliers;
@@ -60,7 +60,7 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
                 }
                 cv::Point2f kp1 = ref_frame->Keypoints()[kp_indices[i]].pt;
                 V3d kp2 = K * p2[i];
-                cv::line(img, kp1, {(int) kp2.x(), (int) kp2.y()}, color);
+                cv::line(img, kp1, { (int)kp2.x(), (int)kp2.y() }, color);
                 //}
             }
 
@@ -70,7 +70,7 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
 
             cv::waitKey(10);
             const double thresh = 0.9;
-            if (p1.size() > 50 && nr_inliers > 0 && (nr_inliers / (double) p1.size()) > thresh) {
+            if (p1.size() > 50 && nr_inliers > 0 && (nr_inliers / (double)p1.size()) > thresh) {
                 std::cout << "Initialized!\n";
                 map_.AddKeyframe(ref_frame);
                 last_frames_.Push(ref_frame);
@@ -80,7 +80,7 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
                 for (int i = 0; i < p1.size(); ++i) {
                     if (inliers[i]) {
                         cv::Point2f kp1 = ref_frame->Keypoints()[kp_indices[i]].pt;
-                        map_.AddPoint(MapPoint(ref_frame, {kp1.x, kp1.y}, points3d[cnt]));
+                        map_.AddPoint(MapPoint(ref_frame, { kp1.x, kp1.y }, points3d[cnt]));
                         ++cnt;
                     }
                 }
@@ -99,24 +99,23 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
         }
         break;
 
-        case kRunning: {
+    case kRunning: {
         M3d R = last_frame->R();
         V3d T = last_frame->T();
 
-            Sophus::SE3d X = Sophus::SE3d(R, T);
-            DirectPoseEstimationMultiLayer(current_frame, X);
+        Sophus::SE3d X = Sophus::SE3d(R, T);
+        DirectPoseEstimationMultiLayer(current_frame, X);
 
-            current_frame->R() = X.rotationMatrix();
-            current_frame->T() = X.translation();
+        current_frame->R() = X.rotationMatrix();
+        current_frame->T() = X.translation();
 
-            cv::imshow("Optical flow", current_frame->Mat());
-            cv::waitKey(10);
+        cv::imshow("Optical flow", current_frame->Mat());
+        cv::waitKey(10);
 
-            poses.push_back(X);
+        poses.push_back(X);
 
-            last_frames_.Push(current_frame);
-        }
-        break;
+        last_frames_.Push(current_frame);
+    } break;
 
     default:
         break;
@@ -127,22 +126,22 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
 
 // 2D-2D pose estimation functions
 void Viso::PoseEstimation2d2d(std::vector<V3d> kp1, std::vector<V3d> kp2,
-                              M3d &R, V3d &T, std::vector<bool> &inliers,
-                              int &nr_inliers)
+    M3d& R, V3d& T, std::vector<bool>& inliers,
+    int& nr_inliers)
 {
     std::vector<cv::Point2f> kp1_;
     std::vector<cv::Point2f> kp2_;
 
     for (int i = 0; i < kp1.size(); ++i) {
-        kp1_.push_back({(float) kp1[i].x(), (float) kp1[i].y()});
-        kp2_.push_back({(float) kp2[i].x(), (float) kp2[i].y()});
+        kp1_.push_back({ (float)kp1[i].x(), (float)kp1[i].y() });
+        kp2_.push_back({ (float)kp2[i].x(), (float)kp2[i].y() });
     }
 
     cv::Mat outlier_mask;
 
     double thresh = projection_error_thresh / std::sqrt(K(0, 0) * K(0, 0) + K(1, 1) * K(1, 1));
     cv::Mat essential = cv::findEssentialMat(
-      kp1_, kp2_, 1.0, {0.0, 0.0}, CV_FM_RANSAC, 0.99, thresh, outlier_mask);
+        kp1_, kp2_, 1.0, { 0.0, 0.0 }, CV_FM_RANSAC, 0.99, thresh, outlier_mask);
 
     if (essential.data == NULL) {
         nr_inliers = 0;
@@ -166,10 +165,10 @@ void Viso::PoseEstimation2d2d(std::vector<V3d> kp1, std::vector<V3d> kp2,
     }
 }
 
-void Viso::OpticalFlowSingleLevel(const cv::Mat &img1, const cv::Mat &img2,
-                                  const std::vector<cv::KeyPoint> &kp1,
-                                  std::vector<cv::KeyPoint> &kp2,
-                                  std::vector<bool> &success, bool inverse)
+void Viso::OpticalFlowSingleLevel(const cv::Mat& img1, const cv::Mat& img2,
+    const std::vector<cv::KeyPoint>& kp1,
+    std::vector<cv::KeyPoint>& kp2,
+    std::vector<bool>& success, bool inverse)
 {
 
     // parameters
@@ -194,8 +193,7 @@ void Viso::OpticalFlowSingleLevel(const cv::Mat &img1, const cv::Mat &img2,
             Eigen::Vector2d b = Eigen::Vector2d::Zero();
             cost = 0;
 
-            if (kp.pt.x + dx <= half_patch_size || kp.pt.x + dx >= img1.cols - half_patch_size ||
-                kp.pt.y + dy <= half_patch_size || kp.pt.y + dy >= img1.rows - half_patch_size) {
+            if (kp.pt.x + dx <= half_patch_size || kp.pt.x + dx >= img1.cols - half_patch_size || kp.pt.y + dy <= half_patch_size || kp.pt.y + dy >= img1.rows - half_patch_size) {
                 succ = false;
                 break;
             }
@@ -214,8 +212,7 @@ void Viso::OpticalFlowSingleLevel(const cv::Mat &img1, const cv::Mat &img2,
                         J = -GetImageGradient(img1, kp.pt.x + x, kp.pt.y + y);
                     }
 
-                    error = GetPixelValue(img1, kp.pt.x + x, kp.pt.y + y) -
-                            GetPixelValue(img2, kp.pt.x + x + dx, kp.pt.y + y + dy);
+                    error = GetPixelValue(img1, kp.pt.x + x, kp.pt.y + y) - GetPixelValue(img2, kp.pt.x + x + dx, kp.pt.y + y + dy);
 
                     // compute H, b and set cost;
                     H += J * J.transpose();
@@ -256,15 +253,15 @@ void Viso::OpticalFlowSingleLevel(const cv::Mat &img1, const cv::Mat &img2,
     }
 }
 
-void Viso::OpticalFlowMultiLevel(const cv::Mat &img1, const cv::Mat &img2,
-                                 const std::vector<cv::KeyPoint> &kp1,
-                                 std::vector<cv::KeyPoint> &kp2,
-                                 std::vector<bool> &success, bool inverse)
+void Viso::OpticalFlowMultiLevel(const cv::Mat& img1, const cv::Mat& img2,
+    const std::vector<cv::KeyPoint>& kp1,
+    std::vector<cv::KeyPoint>& kp2,
+    std::vector<bool>& success, bool inverse)
 {
     // parameters
     int pyramids = 4;
     double pyramid_scale = 0.5;
-    double scales[] = {1.0, 0.5, 0.25, 0.125};
+    double scales[] = { 1.0, 0.5, 0.25, 0.125 };
 
     // create pyramids
     std::vector<cv::Mat> pyr1, pyr2; // image pyramids
@@ -278,15 +275,15 @@ void Viso::OpticalFlowMultiLevel(const cv::Mat &img1, const cv::Mat &img2,
                 {
                     cv::Mat down;
                     cv::pyrDown(pyr1[i - 1], down,
-                                cv::Size(pyr1[i - 1].cols * pyramid_scale,
-                                         pyr1[i - 1].rows * pyramid_scale));
+                        cv::Size(pyr1[i - 1].cols * pyramid_scale,
+                                    pyr1[i - 1].rows * pyramid_scale));
                     pyr1.push_back(down);
                 }
                 {
                     cv::Mat down;
                     cv::pyrDown(pyr2[i - 1], down,
-                                cv::Size(pyr2[i - 1].cols * pyramid_scale,
-                                         pyr2[i - 1].rows * pyramid_scale));
+                        cv::Size(pyr2[i - 1].cols * pyramid_scale,
+                                    pyr2[i - 1].rows * pyramid_scale));
                     pyr2.push_back(down);
                 }
             }
@@ -341,8 +338,8 @@ void Viso::OpticalFlowMultiLevel(const cv::Mat &img1, const cv::Mat &img2,
 //      [x12 * Pi13  - Pi12];
 //      [x21 * Pi23  - Pi21];
 //      [x22 * Pi13  - Pi22]];
-void Viso::Triangulate(const M34d &Pi1, const M34d &Pi2, const V3d &x1,
-                       const V3d &x2, V3d &P)
+void Viso::Triangulate(const M34d& Pi1, const M34d& Pi2, const V3d& x1,
+    const V3d& x2, V3d& P)
 {
     M4d A = M4d::Zero();
     A.row(0) = x1.x() * Pi1.row(2) - Pi1.row(0);
@@ -358,9 +355,10 @@ void Viso::Triangulate(const M34d &Pi1, const M34d &Pi2, const V3d &x1,
     P = V.col(3).block<3, 1>(0, 0) / V(3, 3);
 }
 
-void Viso::Reconstruct(const std::vector<V3d> &p1, const std::vector<V3d> &p2,
-                       const M3d &R, const V3d &T, std::vector<bool> &inliers,
-                       int &nr_inliers, std::vector<V3d> &points3d) {
+void Viso::Reconstruct(const std::vector<V3d>& p1, const std::vector<V3d>& p2,
+    const M3d& R, const V3d& T, std::vector<bool>& inliers,
+    int& nr_inliers, std::vector<V3d>& points3d)
+{
     if (nr_inliers == 0) {
         return;
     }
@@ -427,8 +425,9 @@ void Viso::Reconstruct(const std::vector<V3d> &p1, const std::vector<V3d> &p2,
     }
 }
 
-M26d dPixeldXi(const M3d &K, const M3d &R, const V3d &T, const V3d &P,
-               const double &scale) {
+M26d dPixeldXi(const M3d& K, const M3d& R, const V3d& T, const V3d& P,
+    const double& scale)
+{
     V3d Pw = R * P + T;
     double x = Pw.x();
     double y = Pw.y();
@@ -440,17 +439,18 @@ M26d dPixeldXi(const M3d &K, const M3d &R, const V3d &T, const V3d &P,
 
     M26d result;
     result << fx / z, 0, -fx * x / zz, -fx * xy / zz, fx + fx * x * x / zz,
-      -fx * y / z, 0, fy / z, -fy * y / zz, -fy - fy * y * y / zz, fy * xy / zz,
-      fy * x / z;
+        -fx * y / z, 0, fy / z, -fy * y / zz, -fy - fy * y * y / zz, fy * xy / zz,
+        fy * x / z;
 
     return result;
 }
 
 void Viso::DirectPoseEstimationSingleLayer(int level,
-                                           Keyframe::Ptr current_frame,
-                                           Sophus::SE3d &T21) {
+    Keyframe::Ptr current_frame,
+    Sophus::SE3d& T21)
+{
 
-    const double scales[] = {1, 0.5, 0.25, 0.125};
+    const double scales[] = { 1, 0.5, 0.25, 0.125 };
     const double scale = scales[level];
     const double delta_thresh = 0.005;
 
@@ -491,13 +491,13 @@ void Viso::DirectPoseEstimationSingleLayer(int level,
                 assert(!hasNaN);
 
                 bool good = frame->IsInside(u_ref - half_patch_size,
-                                            v_ref - half_patch_size, level)
-                            && frame->IsInside(u_ref + half_patch_size,
-                                               v_ref + half_patch_size, level)
-                            && current_frame->IsInside(u_cur - half_patch_size,
-                                                       v_cur - half_patch_size, level)
-                            && current_frame->IsInside(u_cur + half_patch_size,
-                                                       v_cur + half_patch_size, level);
+                                v_ref - half_patch_size, level)
+                    && frame->IsInside(u_ref + half_patch_size,
+                           v_ref + half_patch_size, level)
+                    && current_frame->IsInside(u_cur - half_patch_size,
+                           v_cur - half_patch_size, level)
+                    && current_frame->IsInside(u_cur + half_patch_size,
+                           v_cur + half_patch_size, level);
 
                 if (!good) {
                     continue;
@@ -506,12 +506,11 @@ void Viso::DirectPoseEstimationSingleLayer(int level,
                 nGood++;
 
                 M26d J_pixel_xi = dPixeldXi(K, T21.rotationMatrix(), T21.translation(),
-                                            P1, scale); // pixel to \xi in Lie algebra
+                    P1, scale); // pixel to \xi in Lie algebra
 
                 for (int x = -half_patch_size; x < half_patch_size; x++) {
                     for (int y = -half_patch_size; y < half_patch_size; y++) {
-                        double error = frame->GetPixelValue(u_ref + x, v_ref + y, level) -
-                                       current_frame->GetPixelValue(u_cur + x, v_cur + y, level);
+                        double error = frame->GetPixelValue(u_ref + x, v_ref + y, level) - current_frame->GetPixelValue(u_cur + x, v_cur + y, level);
                         V2d J_img_pixel = current_frame->GetGradient(u_cur + x, v_cur + y, level);
                         V6d J = -J_img_pixel.transpose() * J_pixel_xi;
                         H += J * J.transpose();
@@ -539,7 +538,7 @@ void Viso::DirectPoseEstimationSingleLayer(int level,
             break;
         }
 
-        if ((1 - cost / (double) lastCost) < delta_thresh) {
+        if ((1 - cost / (double)lastCost) < delta_thresh) {
             break;
         }
 
@@ -549,7 +548,8 @@ void Viso::DirectPoseEstimationSingleLayer(int level,
 }
 
 void Viso::DirectPoseEstimationMultiLayer(Keyframe::Ptr current_frame,
-                                          Sophus::SE3d &T21) {
+    Sophus::SE3d& T21)
+{
     for (int level = 3; level >= 0; level--) {
         DirectPoseEstimationSingleLayer(level, current_frame, T21);
     }

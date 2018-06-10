@@ -9,9 +9,9 @@ struct PangoState {
     pangolin::View d_cam;
 };
 
-void DrawMap(PangoState *pango, std::vector<V3d> points, const std::vector<Sophus::SE3d> &poses);
+void DrawMap(PangoState* pango, std::vector<V3d> points, const std::vector<Sophus::SE3d>& poses);
 
-int main(int argc, char const *argv[])
+int main(int argc, char const* argv[])
 {
     //
     // Initialize pangolin.
@@ -48,7 +48,7 @@ int main(int argc, char const *argv[])
     return 0;
 }
 
-void DrawMap(PangoState *pango, std::vector<V3d> points, const std::vector<Sophus::SE3d> &poses)
+void DrawMap(PangoState* pango, std::vector<V3d> points, const std::vector<Sophus::SE3d>& poses)
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     pango->d_cam.Activate(pango->s_cam);
@@ -72,7 +72,7 @@ void DrawMap(PangoState *pango, std::vector<V3d> points, const std::vector<Sophu
         double f = 500;
 
         Sophus::Matrix4f m = pose.inverse().matrix().cast<float>();
-        glMultMatrixf((GLfloat *) m.data());
+        glMultMatrixf((GLfloat*)m.data());
         glColor3f(1, 0, 0);
         glLineWidth(2);
         glBegin(GL_LINES);
