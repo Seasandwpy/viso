@@ -90,6 +90,16 @@ private:
 
     void DirectPoseEstimationSingleLayer(int level, Keyframe::Ptr current_frame, Sophus::SE3d& T21);
     void DirectPoseEstimationMultiLayer(Keyframe::Ptr current_frame, Sophus::SE3d& T21);
+
+    struct AlignmentPair {
+        Keyframe::Ptr ref_frame;
+        Keyframe::Ptr cur_frame;
+        V2d uv_ref;
+        V2d uv_cur;
+    };
+
+    void LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp);
+    void LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool>& success, std::vector<V2d>& kp, int level);
 };
 
 #endif

@@ -88,6 +88,15 @@ public:
         return V2d{ u, v };
     }
 
+    // Calculate the viewing angle, i.e. the angle between the vector from the
+    // origin of the camera to the point and the camera's Z-axis.
+    inline double ViewingAngle(const V3d& Pw)
+    {
+        V3d Pc = R_ * Pw + T_;
+        Pc.normalize();
+        return std::acos(Pc.z());
+    }
+
     inline std::vector<cv::KeyPoint>& Keypoints() { return keypoints_; }
 
     inline cv::Mat Mat() { return mat_; }
