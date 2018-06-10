@@ -20,6 +20,6 @@ include_directories(${Sophus_INCLUDE_DIRS})
 
 include_directories(include)
 
-add_executable(viso src/keyframe.cpp include/viso.h src/viso.cpp src/main.cpp include/timer.h include/map_point.h)
+add_executable(viso src/keyframe.cpp include/viso.h src/viso.cpp src/main.cpp include/timer.h include/map_point.h include/ring_buffer.h)
 target_link_libraries(viso ${OpenCV_LIBS} ${Pangolin_LIBRARIES})
 

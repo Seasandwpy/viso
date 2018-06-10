@@ -2,24 +2,22 @@
 #ifndef VISO_FRAME_SEQUENCE_H
 #define VISO_FRAME_SEQUENCE_H
 
-#include <string>
 #include <memory>
+#include <string>
 
-#include "types.h"
 #include "keyframe.h"
+#include "types.h"
 
-class FrameSequence
-{
-  public:
-    class FrameHandler
-    {
+class FrameSequence {
+public:
+  class FrameHandler {
     public:
         virtual void OnNewFrame(Keyframe::Ptr keyframe) = 0;
     };
 
     FrameSequence(std::string location,
-                  FrameHandler *handler) : location_(location),
-                                           handler_(handler)
+                  FrameHandler *handler)
+      : location_(location), handler_(handler)
     {
     }
 
@@ -31,21 +29,16 @@ class FrameSequence
         cv::Mat frame = cv::imread(file, 0);
         success = (frame.data != NULL);
 
-
-
-        if (success)
-        {
-          handler_->OnNewFrame(std::make_shared<Keyframe>(frame));
-        }
-        else
-        {
-          //std::cerr << "Cannot open file " << file << "\n";
+      if (success) {
+        handler_->OnNewFrame(std::make_shared<Keyframe>(frame));
+      } else {
+        //std::cerr << "Cannot open file " << file << "\n";
         }
     };
 
-  private:
+private:
     std::string location_;
-    FrameHandler *handler_;
+  FrameHandler *handler_;
 };
 
 #endif

@@ -27,8 +27,8 @@ inline M3d Hat(V3d v)
 {
   M3d result;
   result << 0.0, -v(2), v(1),
-      v(2), 0.0, -v(0),
-      -v(1), v(0), 0.0;
+    v(2), 0.0, -v(0),
+    -v(1), v(0), 0.0;
   return result;
 }
 
@@ -37,9 +37,7 @@ inline double GetPixelValue(const cv::Mat &mat, const double &x, const double &y
   double xx = x - floor(x);
   double yy = y - floor(y);
   return double(
-    (1 - xx) * (1 - yy) * data[0] +
-    xx * (1 - yy) * data[1] +
-    (1 - xx) * yy * data[mat.step] +
+    (1 - xx) * (1 - yy) * data[0] + xx * (1 - yy) * data[1] + (1 - xx) * yy * data[mat.step] +
     xx * yy * data[mat.step + 1]);
 }
 
@@ -56,6 +54,5 @@ inline double GetImageGradientX(const cv::Mat &mat, const double &u, const doubl
 inline double GetImageGradientY(const cv::Mat &mat, const double &u, const double &v) {
   return 0.5 * (GetPixelValue(mat, u, v + 1) - GetPixelValue(mat, u, v - 1));
 }
-
 
 #endif //FINAL_COMMON_H

@@ -15,15 +15,15 @@ public:
   using Units = std::chrono::milliseconds;
 
   Timer() {
-    start_ = Clock::now();
+      start_ = Clock::now();
   }
 
   long GetElapsed() {
-    return std::chrono::duration_cast<Units>(Clock::now() - start_).count();
+      return std::chrono::duration_cast<Units>(Clock::now() - start_).count();
   }
 
   void Reset() {
-    start_ = Clock::now();
+      start_ = Clock::now();
   }
 
 private:

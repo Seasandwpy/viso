@@ -1,17 +1,15 @@
 
-#include <iostream>
-#include "viso.h"
 #include "common.h"
+#include "viso.h"
+#include <iostream>
 #include <pangolin/pangolin.h>
 
-struct PangoState
-{
+struct PangoState {
     pangolin::OpenGlRenderState s_cam;
     pangolin::View d_cam;
 };
 
-void
-DrawMap(PangoState *pango, const std::vector<V3d> &points);
+void DrawMap(PangoState *pango, std::vector<V3d> points, const std::vector<Sophus::SE3d> &poses);
 
 int main(int argc, char const *argv[])
 {
@@ -37,21 +35,20 @@ int main(int argc, char const *argv[])
     // Run main loop.
     //
 
-//    Viso viso(200.0, 200.0, 240.0, 240.0);
-//    FrameSequence sequence("", &viso);
+    //    Viso viso(200.0, 200.0, 240.0, 240.0);
+    //    FrameSequence sequence("", &viso);
     Viso viso(517.3, 516.5, 325.1, 249.7);
     FrameSequence sequence("rgb/", &viso);
 
-    while (!pangolin::ShouldQuit())
-    {
+    while (!pangolin::ShouldQuit()) {
         sequence.RunOnce();
-        DrawMap(&pango_state, viso.GetPoints());
+        DrawMap(&pango_state, viso.GetPoints(), viso.poses);
     }
 
     return 0;
 }
 
-void DrawMap(PangoState *pango, const std::vector<V3d> &points)
+void DrawMap(PangoState *pango, std::vector<V3d> points, const std::vector<Sophus::SE3d> &poses)
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     pango->d_cam.Activate(pango->s_cam);
@@ -60,12 +57,43 @@ void DrawMap(PangoState *pango, const std::vector<V3d> &points)
     // points
     glPointSize(2);
     glBegin(GL_POINTS);
-    for (size_t i = 0; i < points.size(); i++)
-    {
+    for (size_t i = 0; i < points.size(); i++) {
         glColor3f(1.0, 1.0, 1.0);
         glVertex3d(points[i].x(), points[i].y(), points[i].z());
     }
     glEnd();
 
+    // draw poses
+    float sz = 0.5;
+    int width = 640, height = 480;
+    for (auto pose : poses) {
+        glPushMatrix();
+
+        double f = 500;
+
+        Sophus::Matrix4f m = pose.inverse().matrix().cast<float>();
+        glMultMatrixf((GLfloat *) m.data());
+        glColor3f(1, 0, 0);
+        glLineWidth(2);
+        glBegin(GL_LINES);
+        glVertex3f(0, 0, 0);
+        glVertex3f(sz * (0 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(0, 0, 0);
+        glVertex3f(sz * (0 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(0, 0, 0);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(0, 0, 0);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(sz * (0 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(sz * (0 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(sz * (0 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(sz * (0 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (0 - 0) / f, sz);
+        glEnd();
+        glPopMatrix();
+    }
     pangolin::FinishFrame();
 }

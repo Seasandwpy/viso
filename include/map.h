@@ -1,11 +1,10 @@
 
-#include "types.h"
 #include "keyframe.h"
 #include "map_point.h"
+#include "types.h"
 
-class Map
-{
-  private:
+class Map {
+private:
   std::vector<Keyframe::Ptr> keyframes_;
   std::vector<MapPoint> points_;
 
@@ -20,5 +19,5 @@ public:
 
   inline std::vector<Keyframe::Ptr> &Keyframes() { return keyframes_; }
 
-  inline std::vector<MapPoint> &GetPoints() { return points_; }
+  inline std::vector<MapPoint> GetPoints() { return points_; }
 };
