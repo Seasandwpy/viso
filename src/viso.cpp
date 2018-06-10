@@ -10,6 +10,7 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
     static int frame_cnt = 0;
 
     frame_cnt++;
+    // TODO: Clean this up.
     current_frame->K() = K;
 
     switch (state_) {
@@ -17,7 +18,7 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
         if (current_frame->GetId() != 0) {
             std::vector<bool> success;
             current_frame->Keypoints() = last_frame->Keypoints();
-            OpticalFlowMultiLevel(ref_frame->Mat(), current_frame->Mat(),
+            OpticalFlowMultiLevel(ref_frame, current_frame,
                 ref_frame->Keypoints(), current_frame->Keypoints(),
                 success, true);
 
@@ -124,7 +125,7 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
     last_frame = current_frame;
 }
 
-// 2D-2D pose estimation functions
+// TODO: Move this to a separate class.
 void Viso::PoseEstimation2d2d(std::vector<V3d> kp1, std::vector<V3d> kp2,
     M3d& R, V3d& T, std::vector<bool>& inliers,
     int& nr_inliers)
@@ -165,6 +166,7 @@ void Viso::PoseEstimation2d2d(std::vector<V3d> kp1, std::vector<V3d> kp2,
     }
 }
 
+// TODO: Move this to a separate class.
 void Viso::OpticalFlowSingleLevel(const cv::Mat& img1, const cv::Mat& img2,
     const std::vector<cv::KeyPoint>& kp1,
     std::vector<cv::KeyPoint>& kp2,
@@ -253,50 +255,27 @@ void Viso::OpticalFlowSingleLevel(const cv::Mat& img1, const cv::Mat& img2,
     }
 }
 
-void Viso::OpticalFlowMultiLevel(const cv::Mat& img1, const cv::Mat& img2,
+// TODO: Move this to a separate class.
+void Viso::OpticalFlowMultiLevel(
+    const Keyframe::Ptr ref_frame,
+    const Keyframe::Ptr cur_frame,
     const std::vector<cv::KeyPoint>& kp1,
     std::vector<cv::KeyPoint>& kp2,
     std::vector<bool>& success, bool inverse)
 {
     // parameters
-    int pyramids = 4;
-    double pyramid_scale = 0.5;
-    double scales[] = { 1.0, 0.5, 0.25, 0.125 };
-
-    // create pyramids
-    std::vector<cv::Mat> pyr1, pyr2; // image pyramids
-
-    for (int i = 0; i < pyramids; i++) {
-        {
-            if (i == 0) {
-                pyr1.push_back(img1);
-                pyr2.push_back(img2);
-            } else {
-                {
-                    cv::Mat down;
-                    cv::pyrDown(pyr1[i - 1], down,
-                        cv::Size(pyr1[i - 1].cols * pyramid_scale,
-                                    pyr1[i - 1].rows * pyramid_scale));
-                    pyr1.push_back(down);
-                }
-                {
-                    cv::Mat down;
-                    cv::pyrDown(pyr2[i - 1], down,
-                        cv::Size(pyr2[i - 1].cols * pyramid_scale,
-                                    pyr2[i - 1].rows * pyramid_scale));
-                    pyr2.push_back(down);
-                }
-            }
-        }
-    }
+    // TODO: Move these parameters to a common place.
+    const int nr_pyramids = 4;
+    const double pyramid_scale = 0.5;
+    const double scales[] = { 1.0, 0.5, 0.25, 0.125 };
 
     // Scale the initial guess for kp2.
     for (int j = 0; j < kp2.size(); ++j) {
-        kp2[j].pt *= scales[pyramids - 1];
-        kp2[j].size *= scales[pyramids - 1];
+        kp2[j].pt *= scales[nr_pyramids - 1];
+        kp2[j].size *= scales[nr_pyramids - 1];
     }
 
-    for (int i = pyramids - 1; i >= 0; --i) {
+    for (int i = nr_pyramids - 1; i >= 0; --i) {
         std::vector<cv::KeyPoint> kp1_ = kp1;
 
         for (int j = 0; j < kp1_.size(); ++j) {
@@ -305,7 +284,7 @@ void Viso::OpticalFlowMultiLevel(const cv::Mat& img1, const cv::Mat& img2,
         }
 
         std::vector<bool> success_single;
-        OpticalFlowSingleLevel(pyr1[i], pyr2[i], kp1_, kp2, success_single, true);
+        OpticalFlowSingleLevel(ref_frame->Pyramids()[i], cur_frame->Pyramids()[i], kp1_, kp2, success_single, true);
         success = success_single;
 
         if (i != 0) {
@@ -338,6 +317,8 @@ void Viso::OpticalFlowMultiLevel(const cv::Mat& img1, const cv::Mat& img2,
 //      [x12 * Pi13  - Pi12];
 //      [x21 * Pi23  - Pi21];
 //      [x22 * Pi13  - Pi22]];
+
+// TODO: Move this to a separate class.
 void Viso::Triangulate(const M34d& Pi1, const M34d& Pi2, const V3d& x1,
     const V3d& x2, V3d& P)
 {
@@ -355,6 +336,7 @@ void Viso::Triangulate(const M34d& Pi1, const M34d& Pi2, const V3d& x1,
     P = V.col(3).block<3, 1>(0, 0) / V(3, 3);
 }
 
+// TODO: Move this to a separate class.
 void Viso::Reconstruct(const std::vector<V3d>& p1, const std::vector<V3d>& p2,
     const M3d& R, const V3d& T, std::vector<bool>& inliers,
     int& nr_inliers, std::vector<V3d>& points3d)
@@ -428,10 +410,10 @@ void Viso::Reconstruct(const std::vector<V3d>& p1, const std::vector<V3d>& p2,
 M26d dPixeldXi(const M3d& K, const M3d& R, const V3d& T, const V3d& P,
     const double& scale)
 {
-    V3d Pw = R * P + T;
-    double x = Pw.x();
-    double y = Pw.y();
-    double z = Pw.z();
+    V3d Pc = R * P + T;
+    double x = Pc.x();
+    double y = Pc.y();
+    double z = Pc.z();
     double fx = K(0, 0) * scale;
     double fy = K(1, 1) * scale;
     double zz = z * z;
@@ -445,6 +427,7 @@ M26d dPixeldXi(const M3d& K, const M3d& R, const V3d& T, const V3d& P,
     return result;
 }
 
+// TODO: Move this to a separate class.
 void Viso::DirectPoseEstimationSingleLayer(int level,
     Keyframe::Ptr current_frame,
     Sophus::SE3d& T21)

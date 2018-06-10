@@ -81,15 +81,14 @@ private:
         bool inverse);
 
     void OpticalFlowMultiLevel(
-        const cv::Mat& img1,
-        const cv::Mat& img2,
+        const Keyframe::Ptr ref_frame,
+        const Keyframe::Ptr cur_frame,
         const std::vector<cv::KeyPoint>& kp1,
         std::vector<cv::KeyPoint>& kp2,
         std::vector<bool>& success,
         bool inverse);
 
     void DirectPoseEstimationSingleLayer(int level, Keyframe::Ptr current_frame, Sophus::SE3d& T21);
-
     void DirectPoseEstimationMultiLayer(Keyframe::Ptr current_frame, Sophus::SE3d& T21);
 };
 
