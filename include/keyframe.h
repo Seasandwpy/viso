@@ -99,21 +99,26 @@ public:
 
     inline std::vector<cv::KeyPoint>& Keypoints() { return keypoints_; }
 
-    inline cv::Mat Mat() { return mat_; }
-
-    inline M3d& R() { return R_; }
-
-    inline V3d& T() { return T_; }
-
-    inline M3d& K() { return K_; }
+    inline const cv::Mat& Mat() { return mat_; }
+    inline M3d GetR() { return R_; }
+    inline V3d GetT() { return T_; }
+    inline void SetT(V3d T) { T_ = T; }
+    inline void SetR(M3d R) { R_ = R; }
+    inline M3d GetK() { return K_; }
+    inline void SetK(M3d K) { K_ = K; }
 
     inline double GetScale(int level) { return scales_[level]; }
 
-    inline std::vector<cv::Mat> Pyramids() { return pyramids_; }
+    inline const std::vector<cv::Mat>& Pyramids() { return pyramids_; }
 
     static long GetNextId()
     {
         return next_id_;
+    }
+
+    inline int AddKeypoint(cv::KeyPoint kp) {
+      keypoints_.push_back(kp);
+      return keypoints_.size();
     }
 };
 

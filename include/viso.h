@@ -16,7 +16,7 @@ private:
     };
 
     // Some constants.
-    const int reinitialize_after = 5;
+    const int reinitialize_after = 10;
     const int fast_thresh = 70;
     const double projection_error_thresh = 5.3;
     const double parallax_thresh = 1;
@@ -24,13 +24,19 @@ private:
     M3d K;
     M3d K_inv;
 
-    Keyframe::Ptr ref_frame;
     Keyframe::Ptr last_frame;
 
-    RingBuffer<3, Keyframe::Ptr> last_frames_;
+    struct Initialization {
+        Keyframe::Ptr ref_frame;
+        std::vector<cv::KeyPoint> kp1;
+        std::vector<cv::KeyPoint> kp2;
+        std::vector<bool> success;
+        int frame_cnt;
+        M3d R;
+        V3d T;
+    } init_;
 
     Map map_;
-
     State state_;
 
 public:
@@ -45,13 +51,13 @@ public:
 
     ~Viso() = default;
 
-    void OnNewFrame(Keyframe::Ptr keyframe);
+    void OnNewFrame(Keyframe::Ptr cur_frame);
 
     inline std::vector<V3d> GetPoints()
     {
         std::vector<V3d> points;
-        for (auto& p : map_.GetPoints()) {
-            points.push_back(p.world_pos);
+        for (const auto& p : map_.GetPoints()) {
+            points.push_back(p->GetWorldPos());
         }
         return points;
     }

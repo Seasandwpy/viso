@@ -5,23 +5,33 @@
 #ifndef VISO_MAP_POINT_H
 #define VISO_MAP_POINT_H
 
-#include <tuple>
 #include "keyframe.h"
 #include "types.h"
+#include <tuple>
 
-struct MapPoint {
-    MapPoint(Keyframe::Ptr keyframe, V2d frame_pos, V3d world_pos)
-        : keyframe(keyframe)
-        , frame_pos(frame_pos)
-        , world_pos(world_pos)
+class MapPoint {
+public:
+    using Ptr = std::shared_ptr<MapPoint>;
+
+    MapPoint(V3d Pw)
+        : Pw_(Pw)
     {
     }
 
-    V3d world_pos;
-    Keyframe::Ptr keyframe;
+    inline void AddObservation(Keyframe::Ptr keyframe, int idx)
+    {
+        observations_.push_back({ keyframe, idx });
+    }
 
-    std::vector<std::pair<Keyframe::Ptr, int>> observatios;
-    V2d frame_pos;
+    inline const std::vector<std::pair<Keyframe::Ptr, int> >& GetObservations()
+    {
+        return observations_;
+    }
+
+    inline V3d GetWorldPos() { return Pw_; }
+private:
+    V3d Pw_;
+    std::vector<std::pair<Keyframe::Ptr, int> > observations_;
 };
 
 #endif //VISO_MAP_POINT_H

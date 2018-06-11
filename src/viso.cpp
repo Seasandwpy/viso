@@ -4,123 +4,130 @@
 
 #include <opencv2/core/eigen.hpp>
 
-void Viso::OnNewFrame(Keyframe::Ptr current_frame)
+void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
 {
-    static int max_inliers = 0;
-    static int frame_cnt = 0;
-
-    frame_cnt++;
     // TODO: Clean this up.
-    current_frame->K() = K;
+    cur_frame->SetK(K);
 
     switch (state_) {
     case kInitialization:
-        if (current_frame->GetId() != 0) {
-            std::vector<bool> success;
-            current_frame->Keypoints() = last_frame->Keypoints();
-            OpticalFlowMultiLevel(ref_frame, current_frame,
-                ref_frame->Keypoints(), current_frame->Keypoints(),
-                success, true);
+        if (init_.frame_cnt > 0 && init_.frame_cnt <= reinitialize_after) {
+
+            OpticalFlowMultiLevel(init_.ref_frame,
+                cur_frame,
+                init_.kp1,
+                init_.kp2,
+                init_.success,
+                true);
+
+            {
+                auto iter1 = init_.kp1.begin();
+                auto iter2 = init_.kp2.begin();
+                auto iter3 = init_.success.begin();
+
+                while (iter1 != init_.kp1.end()) {
+                    if (!(*iter3)) {
+                        iter1 = init_.kp1.erase(iter1);
+                        iter2 = init_.kp2.erase(iter2);
+                    } else {
+                        ++iter1;
+                        ++iter2;
+                    }
+                    ++iter3;
+                }
+
+                init_.success.clear();
+            }
 
             std::vector<V3d> p1;
             std::vector<V3d> p2;
 
-            std::vector<int> kp_indices;
-
-            for (int i = 0; i < current_frame->Keypoints().size(); i++) {
-                if (success[i]) {
-                    p1.emplace_back(K_inv * V3d{ ref_frame->Keypoints()[i].pt.x,
-                                                ref_frame->Keypoints()[i].pt.y, 1 });
-                    p2.emplace_back(K_inv * V3d{ current_frame->Keypoints()[i].pt.x,
-                                                current_frame->Keypoints()[i].pt.y, 1 });
-                    kp_indices.push_back(i);
-                }
+            for (int i = 0; i < init_.kp1.size(); ++i) {
+                p1.emplace_back(K_inv * V3d{ init_.kp1[i].pt.x, init_.kp1[i].pt.y, 1 });
+                p2.emplace_back(K_inv * V3d{ init_.kp2[i].pt.x, init_.kp2[i].pt.y, 1 });
             }
 
-            std::vector<bool> inliers;
             int nr_inliers = 0;
             std::vector<V3d> points3d;
-            PoseEstimation2d2d(p1, p2, current_frame->R(), current_frame->T(),
-                inliers, nr_inliers);
-            Reconstruct(p1, p2, current_frame->R(), current_frame->T(), inliers,
-                nr_inliers, points3d);
+            PoseEstimation2d2d(p1, p2, init_.R, init_.T, init_.success, nr_inliers);
+            Reconstruct(p1, p2, init_.R, init_.T, init_.success, nr_inliers, points3d);
 
-            if (nr_inliers > max_inliers) {
-                max_inliers = nr_inliers;
-            }
-
+            // Visualization
             cv::Mat img;
-            cv::cvtColor(current_frame->Mat(), img, CV_GRAY2BGR);
+            cv::cvtColor(cur_frame->Mat(), img, CV_GRAY2BGR);
 
             for (int i = 0; i < p2.size(); i++) {
-                // if (inliers[i])
-                //{
                 cv::Scalar color(255, 0, 0);
-                if (nr_inliers > 0 && inliers[i]) {
+                if (nr_inliers > 0 && init_.success[i]) {
                     color = cv::Scalar(0, 255, 0);
                 }
-                cv::Point2f kp1 = ref_frame->Keypoints()[kp_indices[i]].pt;
+                cv::Point2f kp1 = init_.kp1[i].pt;
                 V3d kp2 = K * p2[i];
                 cv::line(img, kp1, { (int)kp2.x(), (int)kp2.y() }, color);
-                //}
             }
 
             cv::imshow("Optical flow", img);
+            //
+
             std::cout << "Tracked points: " << p1.size()
-                      << ", Inliers: " << nr_inliers << "(" << max_inliers << ")\n";
+                      << ", Inliers: " << nr_inliers << "\n";
 
             cv::waitKey(10);
             const double thresh = 0.9;
             if (p1.size() > 50 && nr_inliers > 0 && (nr_inliers / (double)p1.size()) > thresh) {
                 std::cout << "Initialized!\n";
-                map_.AddKeyframe(ref_frame);
-                last_frames_.Push(ref_frame);
-                last_frames_.Push(current_frame);
+                map_.AddKeyframe(init_.ref_frame);
+                map_.AddKeyframe(cur_frame);
+
+                cur_frame->SetR(init_.R);
+                cur_frame->SetT(init_.T);
 
                 int cnt = 0;
                 for (int i = 0; i < p1.size(); ++i) {
-                    if (inliers[i]) {
-                        cv::Point2f kp1 = ref_frame->Keypoints()[kp_indices[i]].pt;
-                        map_.AddPoint(MapPoint(ref_frame, { kp1.x, kp1.y }, points3d[cnt]));
+                    if (init_.success[i]) {
+                        init_.ref_frame->AddKeypoint(init_.kp1[i]);
+                        cur_frame->AddKeypoint(init_.kp2[i]);
+                        MapPoint::Ptr map_point = std::make_shared<MapPoint>(points3d[cnt]);
+                        map_point->AddObservation(init_.ref_frame, i);
+                        map_point->AddObservation(cur_frame, i);
+                        map_.AddPoint(map_point);
                         ++cnt;
                     }
                 }
                 state_ = kRunning;
                 break;
             }
-
-            if (frame_cnt > reinitialize_after) {
-                cv::FAST(current_frame->Mat(), current_frame->Keypoints(), fast_thresh);
-                ref_frame = current_frame;
-                frame_cnt = 0;
-            }
         } else {
-            cv::FAST(current_frame->Mat(), current_frame->Keypoints(), fast_thresh);
-            ref_frame = current_frame;
+            init_.kp1.clear();
+            init_.kp2.clear();
+            init_.success.clear();
+            cv::FAST(cur_frame->Mat(), init_.kp1, fast_thresh);
+            init_.kp2 = init_.kp1;
+            init_.ref_frame = cur_frame;
+            init_.frame_cnt = 0;
         }
+
+        ++init_.frame_cnt;
         break;
 
     case kRunning: {
-        M3d R = last_frame->R();
-        V3d T = last_frame->T();
+        Sophus::SE3d X = Sophus::SE3d(last_frame->GetR(), last_frame->GetT());
+        DirectPoseEstimationMultiLayer(cur_frame, X);
 
-        Sophus::SE3d X = Sophus::SE3d(R, T);
-        DirectPoseEstimationMultiLayer(current_frame, X);
-
-        current_frame->R() = X.rotationMatrix();
-        current_frame->T() = X.translation();
+        cur_frame->SetR(X.rotationMatrix());
+        cur_frame->SetT(X.translation());
 
         std::vector<V2d> kp_before, kp_after;
-        LKAlignment(current_frame, kp_before, kp_after);
+        LKAlignment(cur_frame, kp_before, kp_after);
 
         cv::Mat display;
-        cv::cvtColor(current_frame->Mat(), display, CV_GRAY2BGR);
+        cv::cvtColor(cur_frame->Mat(), display, CV_GRAY2BGR);
 
         for (int i = 0; i < kp_after.size(); ++i) {
-            cv::rectangle(display, cv::Point2f(kp_before[i].x() - 4, kp_before[i].y() - 4), cv::Point2f(kp_before[i].x() + 4, kp_before[i].y() + 2),
+            cv::rectangle(display, cv::Point2f(kp_before[i].x() - 4, kp_before[i].y() - 4), cv::Point2f(kp_before[i].x() + 4, kp_before[i].y() + 4),
                 cv::Scalar(0, 0, 255));
 
-            cv::rectangle(display, cv::Point2f(kp_after[i].x() - 4, kp_after[i].y() - 4), cv::Point2f(kp_after[i].x() + 4   , kp_after[i].y() + 2),
+            cv::rectangle(display, cv::Point2f(kp_after[i].x() - 4, kp_after[i].y() - 4), cv::Point2f(kp_after[i].x() + 4, kp_after[i].y() + 4),
                 cv::Scalar(0, 250, 0));
         }
 
@@ -128,15 +135,13 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
         cv::waitKey(0);
 
         poses.push_back(X);
-
-        last_frames_.Push(current_frame);
     } break;
 
     default:
         break;
     }
 
-    last_frame = current_frame;
+    last_frame = cur_frame;
 }
 
 // TODO: Move this to a separate class.
@@ -298,7 +303,7 @@ void Viso::OpticalFlowMultiLevel(
         }
 
         std::vector<bool> success_single;
-        OpticalFlowSingleLevel(ref_frame->Pyramids()[i], cur_frame->Pyramids()[i], kp1_, kp2, success_single, true);
+        OpticalFlowSingleLevel(ref_frame->Pyramids()[i], cur_frame->Pyramids()[i], kp1_, kp2, success_single, inverse);
         success = success_single;
 
         if (i != 0) {
@@ -467,12 +472,12 @@ void Viso::DirectPoseEstimationSingleLayer(int level,
         M6d H = M6d::Zero(); // 6x6 Hessian
         V6d b = V6d::Zero(); // 6x1 bias
 
-        current_frame->R() = T21.rotationMatrix();
-        current_frame->T() = T21.translation();
+        current_frame->SetR(T21.rotationMatrix());
+        current_frame->SetT(T21.translation());
 
         for (size_t i = 0; i < map_.GetPoints().size(); i++) {
 
-            V3d P1 = map_.GetPoints()[i].world_pos;
+            V3d P1 = map_.GetPoints()[i]->GetWorldPos();
 
             Keyframe::Ptr frame = last_frame;
             V2d uv_ref = frame->Project(P1, level);
@@ -510,7 +515,7 @@ void Viso::DirectPoseEstimationSingleLayer(int level,
                     V2d J_img_pixel = current_frame->GetGradient(u_cur + x, v_cur + y, level);
                     V6d J = -J_img_pixel.transpose() * J_pixel_xi;
                     H += J * J.transpose();
-                    b += -error * J;  
+                    b += -error * J;
                     cost += error * error;
                 }
             }
@@ -558,7 +563,7 @@ void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp_before,
 
     for (size_t i = 0; i < map_.GetPoints().size(); i++) {
 
-        V3d Pw = map_.GetPoints()[i].world_pos;
+        V3d Pw = map_.GetPoints()[i]->GetWorldPos();
 
         if (!current_frame->IsInside(Pw, /*level=*/0)) {
             continue;
@@ -569,8 +574,9 @@ void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp_before,
         int best_frame_idx = -1;
         V2d best_uv_ref;
 
-        for (int j = 0; j < last_frames_.GetSize(); ++j) {
-            Keyframe::Ptr frame = last_frames_[j];
+        auto keyframes = map_.Keyframes();
+        for (int j = 0; j < keyframes.size(); ++j) {
+            Keyframe::Ptr frame = keyframes[j];
             V2d uv_ref = frame->Project(Pw, /*level=*/0);
             double u_ref = uv_ref.x();
             double v_ref = uv_ref.y();
@@ -594,7 +600,7 @@ void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp_before,
         }
 
         AlignmentPair pair;
-        pair.ref_frame = last_frames_[best_frame_idx];
+        pair.ref_frame = keyframes[best_frame_idx];
         pair.cur_frame = current_frame;
         pair.uv_ref = best_uv_ref;
         pair.uv_cur = current_frame->Project(Pw, /*level=*/0);
@@ -605,9 +611,9 @@ void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp_before,
     std::vector<bool> success;
 
     const int nr_pyramids = 4;
-    
-    for(int i = 0; i < alignment_pairs.size(); ++i) {
-      kp_before.push_back(alignment_pairs[i].uv_cur);
+
+    for (int i = 0; i < alignment_pairs.size(); ++i) {
+        kp_before.push_back(alignment_pairs[i].uv_cur);
     }
 
     for (int level = nr_pyramids - 1; level >= 0; --level) {
@@ -617,12 +623,12 @@ void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp_before,
     assert(success.size() == kp_before.size());
 
     int i = 0;
-    for(auto iter = kp_before.begin(); iter != kp_before.end(); ++i) {      
-      if(!success[i]) {
-        iter = kp_before.erase(iter);
-      } else {
-        ++iter;      
-      }
+    for (auto iter = kp_before.begin(); iter != kp_before.end(); ++i) {
+        if (!success[i]) {
+            iter = kp_before.erase(iter);
+        } else {
+            ++iter;
+        }
     }
 }
 
@@ -633,7 +639,7 @@ void Viso::LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool
     const int half_patch_size = 4;
     int iterations = 100;
     const double scales[4] = { 1.0, 0.5, 0.25, 0.125 };
-    const double cost_thresh = (half_patch_size * 2) * (half_patch_size * 2) * 255.0;  
+    const double cost_thresh = (half_patch_size * 2) * (half_patch_size * 2) * 100.0;
 
     success.clear();
     kp.clear();
@@ -663,12 +669,12 @@ void Viso::LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool
             for (int x = -half_patch_size; x < half_patch_size; x++) {
                 for (int y = -half_patch_size; y < half_patch_size; y++) {
                     V2d J;
-                    if(!inverse) {
-                    J = -pair.cur_frame->GetGradient(pair.uv_cur.x() * scales[level] + x + dx, pair.uv_cur.y() * scales[level] + y + dy, level);
+                    if (!inverse) {
+                        J = -pair.cur_frame->GetGradient(pair.uv_cur.x() * scales[level] + x + dx, pair.uv_cur.y() * scales[level] + y + dy, level);
                     } else {
-                    J = -pair.ref_frame->GetGradient(pair.uv_ref.x() * scales[level] + x, pair.uv_ref.y() * scales[level] + y, level);
-                    }                    
-error = pair.ref_frame->GetPixelValue(pair.uv_ref.x() * scales[level] + x, pair.uv_ref.y() * scales[level] + y, level) - pair.cur_frame->GetPixelValue(pair.uv_cur.x() * scales[level] + x + dx, pair.uv_cur.y() * scales[level] + y + dy, level);
+                        J = -pair.ref_frame->GetGradient(pair.uv_ref.x() * scales[level] + x, pair.uv_ref.y() * scales[level] + y, level);
+                    }
+                    error = pair.ref_frame->GetPixelValue(pair.uv_ref.x() * scales[level] + x, pair.uv_ref.y() * scales[level] + y, level) - pair.cur_frame->GetPixelValue(pair.uv_cur.x() * scales[level] + x + dx, pair.uv_cur.y() * scales[level] + y + dy, level);
 
                     // compute H, b and set cost;
                     H += J * J.transpose();
@@ -694,12 +700,12 @@ error = pair.ref_frame->GetPixelValue(pair.uv_ref.x() * scales[level] + x, pair.
             succ = true;
         }
 
-        if(lastCost > cost_thresh) {
-          succ = false;        
+        if (lastCost > cost_thresh) {
+            succ = false;
         }
 
         success.push_back(succ);
-        pair.uv_cur += V2d{ dx / scales[level], dy / scales[level] } ;
+        pair.uv_cur += V2d{ dx / scales[level], dy / scales[level] };
     }
 
     for (int i = 0; i < pairs.size(); ++i) {
