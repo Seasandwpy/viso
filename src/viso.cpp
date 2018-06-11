@@ -110,14 +110,17 @@ void Viso::OnNewFrame(Keyframe::Ptr current_frame)
         current_frame->R() = X.rotationMatrix();
         current_frame->T() = X.translation();
 
-        std::vector<V2d> kp;
-        LKAlignment(current_frame, kp);
+        std::vector<V2d> kp_before, kp_after;
+        LKAlignment(current_frame, kp_before, kp_after);
 
         cv::Mat display;
         cv::cvtColor(current_frame->Mat(), display, CV_GRAY2BGR);
 
-        for (int i = 0; i < kp.size(); ++i) {
-            cv::rectangle(display, cv::Point2f(kp[i].x() - 2, kp[i].y() - 2), cv::Point2f(kp[i].x() + 2, kp[i].y() + 2),
+        for (int i = 0; i < kp_after.size(); ++i) {
+            cv::rectangle(display, cv::Point2f(kp_before[i].x() - 4, kp_before[i].y() - 4), cv::Point2f(kp_before[i].x() + 4, kp_before[i].y() + 2),
+                cv::Scalar(0, 0, 255));
+
+            cv::rectangle(display, cv::Point2f(kp_after[i].x() - 4, kp_after[i].y() - 4), cv::Point2f(kp_after[i].x() + 4   , kp_after[i].y() + 2),
                 cv::Scalar(0, 250, 0));
         }
 
@@ -507,7 +510,7 @@ void Viso::DirectPoseEstimationSingleLayer(int level,
                     V2d J_img_pixel = current_frame->GetGradient(u_cur + x, v_cur + y, level);
                     V6d J = -J_img_pixel.transpose() * J_pixel_xi;
                     H += J * J.transpose();
-                    b += -error * J;
+                    b += -error * J;  
                     cost += error * error;
                 }
             }
@@ -547,9 +550,11 @@ void Viso::DirectPoseEstimationMultiLayer(Keyframe::Ptr current_frame,
     }
 }
 
-void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp)
+void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp_before, std::vector<V2d>& kp_after)
 {
     std::vector<AlignmentPair> alignment_pairs;
+
+    const double max_angle = 180.0; // 180 means basically no restriction on the angle (for now)
 
     for (size_t i = 0; i < map_.GetPoints().size(); i++) {
 
@@ -560,13 +565,13 @@ void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp)
         }
 
         // Find frame with best viewing angle.
-        double best_angle = CV_PI;
+        double best_angle = 180.0;
         int best_frame_idx = -1;
-        V2d uv_ref;
+        V2d best_uv_ref;
 
         for (int j = 0; j < last_frames_.GetSize(); ++j) {
             Keyframe::Ptr frame = last_frames_[j];
-            uv_ref = frame->Project(Pw, /*level=*/0);
+            V2d uv_ref = frame->Project(Pw, /*level=*/0);
             double u_ref = uv_ref.x();
             double v_ref = uv_ref.y();
 
@@ -574,13 +579,14 @@ void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp)
                 continue;
             }
 
-            double angle = std::abs(frame->ViewingAngle(Pw));
-            if (angle > best_angle) {
+            double angle = std::abs(frame->ViewingAngle(Pw) / CV_PI * 180);
+            if (angle > max_angle || angle > best_angle) {
                 continue;
             }
 
             best_angle = angle;
             best_frame_idx = j;
+            best_uv_ref = uv_ref;
         }
 
         if (best_frame_idx == -1) {
@@ -590,27 +596,44 @@ void Viso::LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp)
         AlignmentPair pair;
         pair.ref_frame = last_frames_[best_frame_idx];
         pair.cur_frame = current_frame;
-        pair.uv_ref = uv_ref;
+        pair.uv_ref = best_uv_ref;
         pair.uv_cur = current_frame->Project(Pw, /*level=*/0);
 
         alignment_pairs.push_back(pair);
     }
 
-    std::vector<bool> succes;
+    std::vector<bool> success;
 
     const int nr_pyramids = 4;
+    
+    for(int i = 0; i < alignment_pairs.size(); ++i) {
+      kp_before.push_back(alignment_pairs[i].uv_cur);
+    }
 
     for (int level = nr_pyramids - 1; level >= 0; --level) {
-        LKAlignmentSingle(alignment_pairs, succes, kp, level);
+        LKAlignmentSingle(alignment_pairs, success, kp_after, level);
+    }
+
+    assert(success.size() == kp_before.size());
+
+    int i = 0;
+    for(auto iter = kp_before.begin(); iter != kp_before.end(); ++i) {      
+      if(!success[i]) {
+        iter = kp_before.erase(iter);
+      } else {
+        ++iter;      
+      }
     }
 }
 
 void Viso::LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool>& success, std::vector<V2d>& kp, int level)
 {
     // parameters
-    int half_patch_size = 4;
-    int iterations = 10;
+    const bool inverse = true;
+    const int half_patch_size = 4;
+    int iterations = 100;
     const double scales[4] = { 1.0, 0.5, 0.25, 0.125 };
+    const double cost_thresh = (half_patch_size * 2) * (half_patch_size * 2) * 255.0;  
 
     success.clear();
     kp.clear();
@@ -630,18 +653,22 @@ void Viso::LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool
             cost = 0;
 
             if (
-                !pair.ref_frame->IsInside(pair.uv_ref.x() * scales[level] + dx - half_patch_size, pair.uv_ref.y() * scales[level] + dy - half_patch_size) || !pair.ref_frame->IsInside(pair.uv_ref.x() * scales[level] + dx + half_patch_size, pair.uv_ref.y() * scales[level] + dy + half_patch_size)) {
+                !pair.ref_frame->IsInside(pair.uv_ref.x() * scales[level] + dx - half_patch_size, pair.uv_ref.y() * scales[level] + dy - half_patch_size, level) || !pair.ref_frame->IsInside(pair.uv_ref.x() * scales[level] + dx + half_patch_size, pair.uv_ref.y() * scales[level] + dy + half_patch_size, level)) {
                 succ = false;
                 break;
             }
 
+            double error = 0;
             // compute cost and jacobian
             for (int x = -half_patch_size; x < half_patch_size; x++) {
                 for (int y = -half_patch_size; y < half_patch_size; y++) {
-
-                    double error = 0;
-                    V2d J = -pair.ref_frame->GetGradient(pair.uv_ref.x() * scales[level] + x, pair.uv_ref.y() * scales[level] + y, level);
-                    error = pair.ref_frame->GetPixelValue(pair.uv_ref.x() * scales[level] + x, pair.uv_ref.y() * scales[level] + y, level) - pair.cur_frame->GetPixelValue(pair.uv_cur.x() * scales[level] + x + dx, pair.uv_cur.y() * scales[level] + y + dy, level);
+                    V2d J;
+                    if(!inverse) {
+                    J = -pair.cur_frame->GetGradient(pair.uv_cur.x() * scales[level] + x + dx, pair.uv_cur.y() * scales[level] + y + dy, level);
+                    } else {
+                    J = -pair.ref_frame->GetGradient(pair.uv_ref.x() * scales[level] + x, pair.uv_ref.y() * scales[level] + y, level);
+                    }                    
+error = pair.ref_frame->GetPixelValue(pair.uv_ref.x() * scales[level] + x, pair.uv_ref.y() * scales[level] + y, level) - pair.cur_frame->GetPixelValue(pair.uv_cur.x() * scales[level] + x + dx, pair.uv_cur.y() * scales[level] + y + dy, level);
 
                     // compute H, b and set cost;
                     H += J * J.transpose();
@@ -667,9 +694,12 @@ void Viso::LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool
             succ = true;
         }
 
-        success.push_back(succ);
+        if(lastCost > cost_thresh) {
+          succ = false;        
+        }
 
-        pair.uv_cur += V2d{ dx, dy } / scales[level];
+        success.push_back(succ);
+        pair.uv_cur += V2d{ dx / scales[level], dy / scales[level] } ;
     }
 
     for (int i = 0; i < pairs.size(); ++i) {

@@ -5,6 +5,7 @@
 #ifndef VISO_MAP_POINT_H
 #define VISO_MAP_POINT_H
 
+#include <tuple>
 #include "keyframe.h"
 #include "types.h"
 
@@ -18,6 +19,8 @@ struct MapPoint {
 
     V3d world_pos;
     Keyframe::Ptr keyframe;
+
+    std::vector<std::pair<Keyframe::Ptr, int>> observatios;
     V2d frame_pos;
 };
 
