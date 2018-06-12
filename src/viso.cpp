@@ -132,7 +132,7 @@ void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
         }
 
         cv::imshow("Tracked", display);
-        cv::waitKey(0);
+        cv::waitKey(10);
 
         poses.push_back(X);
     } break;
@@ -144,11 +144,43 @@ void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
     last_frame = cur_frame;
 }
 
+
+void Viso::RecoverPoseHomography(const cv::Mat &H, M3d &R, V3d &T){
+    cv::Mat pose = cv::Mat::eye(3, 4, CV_64FC1); //3x4 matrix
+    float norm1 = (float)norm(H.col(0));
+    float norm2 = (float)norm(H.col(1));
+    float tnorm = (norm1 + norm2) / 2.0f;
+
+    cv::Mat v1 = H.col(0);
+    cv::Mat v2 = pose.col(0);
+
+    cv::normalize(v1, v2); // Normalize the rotation
+
+    v1 = H.col(1);
+    v2 = pose.col(1);
+
+    cv::normalize(v1, v2);
+
+    v1 = pose.col(0);
+    v2 = pose.col(1);
+
+    cv::Mat v3 = v1.cross(v2); //Computes the cross-product of v1 and v2
+    cv::Mat c2 = pose.col(2);
+    v3.copyTo(c2);
+
+    pose.col(3) = H.col(2) / tnorm; //vector t [R|t]
+
+    cv::cv2eigen(pose.col(3), T);
+    cv::cv2eigen(pose(cv::Rect(0, 0, 3, 3)), R);
+}
+
 // TODO: Move this to a separate class.
 void Viso::PoseEstimation2d2d(std::vector<V3d> kp1, std::vector<V3d> kp2,
     M3d& R, V3d& T, std::vector<bool>& inliers,
     int& nr_inliers)
 {
+    const double thresh = projection_error_thresh / std::sqrt(K(0, 0) * K(0, 0) + K(1, 1) * K(1, 1));
+    
     std::vector<cv::Point2f> kp1_;
     std::vector<cv::Point2f> kp2_;
 
@@ -157,32 +189,70 @@ void Viso::PoseEstimation2d2d(std::vector<V3d> kp1, std::vector<V3d> kp2,
         kp2_.push_back({ (float)kp2[i].x(), (float)kp2[i].y() });
     }
 
-    cv::Mat outlier_mask;
-
-    double thresh = projection_error_thresh / std::sqrt(K(0, 0) * K(0, 0) + K(1, 1) * K(1, 1));
+    int nr_inliers_essential = 0;
+    cv::Mat outlier_mask_essential;
+        
     cv::Mat essential = cv::findEssentialMat(
-        kp1_, kp2_, 1.0, { 0.0, 0.0 }, CV_FM_RANSAC, 0.99, thresh, outlier_mask);
+        kp1_, kp2_, 1.0, { 0.0, 0.0 }, CV_FM_RANSAC, 0.99, thresh, outlier_mask_essential);
 
     if (essential.data == NULL) {
-        nr_inliers = 0;
-        return;
+        nr_inliers_essential = 0;
     }
-
-    cv::Mat Rmat, tmat;
+        
+    cv::Mat Rmat_essential, tmat_essential;
 
     // This method does the depth check. Only users points which are not masked
     // out by
     // the outlier mask.
-    recoverPose(essential, kp1_, kp2_, Rmat, tmat, 1.0, {}, outlier_mask);
+    recoverPose(essential, kp1_, kp2_, Rmat_essential, tmat_essential, 1.0, {}, outlier_mask_essential);
+    
+    for (int i = 0; i < inliers.size(); ++i) {
+		nr_inliers_essential += (outlier_mask_essential.at<bool>(i) > 0);
+	}
+    
+	
+#if 0
+	int nr_inliers_homography = 0;
+	cv::Mat outlier_mask_homography;
+    
+    cv::Mat homography = cv::findHomography(kp1_, kp2_, CV_RANSAC, thresh, outlier_mask_homography, 2000, 0.99);
 
-    cv::cv2eigen(Rmat, R);
-    cv::cv2eigen(tmat, T);
+    if (homography.data == NULL) {
+        nr_inliers_homography = 0;
+    }
+    
+    cv::Mat rotations, translations, normals;  
+    cv::decomposeHomographyMat(homography, cv::Mat::eye(3, 3, CV_64F), rotations, translations, normals);  
+    
+    cv::Mat Rmat_homography, tmat_homography;
+    
+    nr_inliers_homography = 0;
+#endif
 
     inliers = std::vector<bool>(kp1.size());
-    for (int i = 0; i < inliers.size(); ++i) {
-        inliers[i] = outlier_mask.at<bool>(i) > 0;
-        nr_inliers += inliers[i];
+
+#if 0
+    if(nr_inliers_essential >= nr_inliers_homography) {
+#endif
+    	for (int i = 0; i < inliers.size(); ++i) {
+			inliers[i] = outlier_mask_essential.at<bool>(i) > 0;
+			nr_inliers += inliers[i];
+		}
+				
+		cv::cv2eigen(Rmat_essential, R);
+		cv::cv2eigen(tmat_essential, T);
+		
+#if 0
+    } else {
+    	for (int i = 0; i < inliers.size(); ++i) {
+			inliers[i] = outlier_mask_homography.at<bool>(i) > 0;
+			nr_inliers += inliers[i];
+		}
+		
+		cv::cv2eigen(Rmat_homography, R);
+		cv::cv2eigen(tmat_homography, T);
     }
+#endif
 }
 
 // TODO: Move this to a separate class.
@@ -357,7 +427,7 @@ void Viso::Triangulate(const M34d& Pi1, const M34d& Pi2, const V3d& x1,
 
 // TODO: Move this to a separate class.
 void Viso::Reconstruct(const std::vector<V3d>& p1, const std::vector<V3d>& p2,
-    const M3d& R, const V3d& T, std::vector<bool>& inliers,
+    const M3d& R, V3d& T, std::vector<bool>& inliers,
     int& nr_inliers, std::vector<V3d>& points3d)
 {
     if (nr_inliers == 0) {
@@ -424,6 +494,23 @@ void Viso::Reconstruct(const std::vector<V3d>& p1, const std::vector<V3d>& p2,
             points3d.push_back(P1);
         }
     }
+    
+    // Normalization
+    double mean_depth = 0;
+    for(const auto & p : points3d) {
+    	mean_depth += p.z();
+    }
+    
+    if(mean_depth != 0) {
+		mean_depth /= points3d.size();  
+		
+		for(auto & p : points3d) {
+			p /= mean_depth;
+			std::cout << p << std::endl;
+		}
+		
+		T /= mean_depth;
+    }     
 }
 
 M26d dPixeldXi(const M3d& K, const M3d& R, const V3d& T, const V3d& P,

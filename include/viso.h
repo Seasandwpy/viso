@@ -13,6 +13,7 @@ private:
     enum State {
         kInitialization = 0,
         kRunning = 1,
+        kFinished = 2
     };
 
     // Some constants.
@@ -76,7 +77,9 @@ private:
 
     void Reconstruct(const std::vector<V3d>& kp1,
         const std::vector<V3d>& kp2,
-        const M3d& R, const V3d& T, std::vector<bool>& inliers, int& nr_inliers, std::vector<V3d>& points3d);
+        const M3d& R, V3d& T, std::vector<bool>& inliers, int& nr_inliers, std::vector<V3d>& points3d);
+    
+    void RecoverPoseHomography(const cv::Mat &H, M3d &R, V3d &T);
 
     void OpticalFlowSingleLevel(
         const cv::Mat& img1,
