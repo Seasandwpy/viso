@@ -85,15 +85,23 @@ void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
                 int cnt = 0;
                 for (int i = 0; i < p1.size(); ++i) {
                     if (init_.success[i]) {
+                    	//if(init_.kp1[i].pt.x<1||init_.kp1[i].pt.y<1) continue;
+                    	//if(init_.kp1[i].pt.x!=init_.kp1[i].pt.x||init_.kp1[i].pt.y!=init_.kp1[i].pt.y) continue;
+                    	//if(init_.kp2[i].pt.x<1||init_.kp2[i].pt.y<1) continue;
+                    	//if(init_.kp2[i].pt.x!=init_.kp2[i].pt.x||init_.kp2[i].pt.y!=init_.kp2[i].pt.y) continue;
+                    	//std::cout << "add" << i <<"th mappoint" << std::endl;
+                    	//std::cout << init_.kp1[i].pt << std::endl;
+                    	//std::cout << init_.kp2[i].pt << std::endl;
                         init_.ref_frame->AddKeypoint(init_.kp1[i]);
                         cur_frame->AddKeypoint(init_.kp2[i]);
                         MapPoint::Ptr map_point = std::make_shared<MapPoint>(points3d[cnt]);
-                        map_point->AddObservation(init_.ref_frame, i);
-                        map_point->AddObservation(cur_frame, i);
+                        map_point->AddObservation(init_.ref_frame, cnt); //modify index
+                        map_point->AddObservation(cur_frame, cnt); //modify index
                         map_.AddPoint(map_point);
                         ++cnt;
                     }
                 }
+                std::cout <<  "add " << cnt << "mappoint" << std::endl;
                 Sophus::SE3d X = Sophus::SE3d(cur_frame->GetR(), cur_frame->GetT());
                 poses.push_back(X);
                 BA();
@@ -753,7 +761,7 @@ void Viso::BA(){
       	p->setId(id);
       	p->setMarginalized(true);
       	p->setEstimate(mp->GetWorldPos());
-      	std::cout << mp->GetWorldPos() << std::endl;
+      	//std::cout << mp->GetWorldPos() << std::endl;
       	optimizer.addVertex(p);
       	points_v.push_back(p);
         /*for(size_t j = 0; j < mp->GetObservations().size(); j++; id++){ //for each observation
@@ -774,8 +782,9 @@ void Viso::BA(){
       	cameras_v.push_back(cam);
     }
     //id=0;
-    //std::cout << "add edge"<< std::endl;
+    std::cout << "map point size: "<< map_.GetPoints().size()<< std::endl;
     for (size_t i = 0; i < map_.GetPoints().size(); i++) {
+    	//std::cout << i << "th mappint" << std::endl;
     	MapPoint::Ptr mp = map_.GetPoints()[i];
     	for(size_t j = 0; j < mp->GetObservations().size(); j++, id++){ //for each observation
         	std::pair<Keyframe::Ptr, int>  obs = mp->GetObservations()[j];
@@ -784,8 +793,9 @@ void Viso::BA(){
         	e ->setVertex(1,cameras_v[obs.first->GetId()]);
         	e->setInformation(Eigen::Matrix2d::Identity()); //intensity is a scale?
         	int idx = obs.second;
+        	//std::cout << obs.first->Keypoints()[idx].pt.x << " " << obs.first->Keypoints()[idx].pt.y << std::endl;
         	V2d xy (obs.first->Keypoints()[idx].pt.x,obs.first->Keypoints()[idx].pt.y);
-        	//std::cout << xy.transpose() << std::endl;
+        	std::cout << xy.transpose() << std::endl;
         	e->setMeasurement(xy);
         	e->setId( id );
         	optimizer.addEdge(e);
@@ -805,10 +815,10 @@ void Viso::BA(){
      	Sophus::SE3d p_opt = pose->estimate();
      	poses_opt.push_back(p_opt);
   	}
-  	/*for ( int i=0; i < map_.GetPoints().size(); i++ )
+  	for ( int i=0; i < map_.GetPoints().size(); i++ )
   	{
-     	VertexPoint* point = dynamic_cast<VertexPoint*> (optimizer.vertex(i));
-     	V3d point_opt = g->estimate();
+     	VertexSBAPointXYZ* point = dynamic_cast<VertexSBAPointXYZ*> (optimizer.vertex(i));
+     	V3d point_opt = point->estimate();
      	map_.GetPoints()[i]->GetWorldPos()=point_opt;
-  	}*/
+  	}
 }

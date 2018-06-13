@@ -9,7 +9,7 @@ struct PangoState {
     pangolin::View d_cam;
 };
 
-void DrawMap(PangoState* pango, std::vector<V3d> points, const std::vector<Sophus::SE3d>& poses);
+void DrawMap(PangoState* pango, std::vector<V3d> points, const std::vector<Sophus::SE3d>& poses, const std::vector<Sophus::SE3d>& poses_opt);
 
 int main(int argc, char const* argv[])
 {
@@ -42,13 +42,13 @@ int main(int argc, char const* argv[])
 
     while (!pangolin::ShouldQuit()) {
         sequence.RunOnce();
-        DrawMap(&pango_state, viso.GetPoints(), viso.poses);
+        DrawMap(&pango_state, viso.GetPoints(), viso.poses, viso.poses_opt);
     }
 
     return 0;
 }
 
-void DrawMap(PangoState* pango, std::vector<V3d> points, const std::vector<Sophus::SE3d>& poses)
+void DrawMap(PangoState* pango, std::vector<V3d> points, const std::vector<Sophus::SE3d>& poses, const std::vector<Sophus::SE3d>& poses_opt)
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     pango->d_cam.Activate(pango->s_cam);
@@ -74,6 +74,35 @@ void DrawMap(PangoState* pango, std::vector<V3d> points, const std::vector<Sophu
         Sophus::Matrix4f m = pose.inverse().matrix().cast<float>();
         glMultMatrixf((GLfloat*)m.data());
         glColor3f(1, 0, 0);
+        glLineWidth(2);
+        glBegin(GL_LINES);
+        glVertex3f(0, 0, 0);
+        glVertex3f(sz * (0 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(0, 0, 0);
+        glVertex3f(sz * (0 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(0, 0, 0);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(0, 0, 0);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(sz * (0 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(sz * (0 - 0) / f, sz * (height - 1 - 0) / f, sz);
+        glVertex3f(sz * (0 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(sz * (0 - 0) / f, sz * (0 - 0) / f, sz);
+        glVertex3f(sz * (width - 1 - 0) / f, sz * (0 - 0) / f, sz);
+        glEnd();
+        glPopMatrix();
+    }
+    for (auto pose : poses_opt) {
+        glPushMatrix();
+
+        double f = 500;
+
+        Sophus::Matrix4f m = pose.inverse().matrix().cast<float>();
+        glMultMatrixf((GLfloat*)m.data());
+        glColor3f(0, 1, 0);
         glLineWidth(2);
         glBegin(GL_LINES);
         glVertex3f(0, 0, 0);
