@@ -2,6 +2,7 @@
 #include "common.h"
 #include "timer.h"
 
+
 #include <opencv2/core/eigen.hpp>
 
 void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
@@ -81,7 +82,6 @@ void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
 
                 cur_frame->SetR(init_.R);
                 cur_frame->SetT(init_.T);
-
                 int cnt = 0;
                 for (int i = 0; i < p1.size(); ++i) {
                     if (init_.success[i]) {
@@ -94,17 +94,26 @@ void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
                         ++cnt;
                     }
                 }
+                Sophus::SE3d X = Sophus::SE3d(cur_frame->GetR(), cur_frame->GetT());
+                poses.push_back(X);
+                BA();
                 state_ = kRunning;
+                std::cout << "start tracking" << std::endl;
                 break;
+            }
+            else{
+            	poses.push_back(Sophus::SE3d(M3d::Identity(),V3d::Zero()));
             }
         } else {
             init_.kp1.clear();
             init_.kp2.clear();
+            poses.clear();
             init_.success.clear();
             cv::FAST(cur_frame->Mat(), init_.kp1, fast_thresh);
             init_.kp2 = init_.kp1;
             init_.ref_frame = cur_frame;
             init_.frame_cnt = 0;
+            poses.push_back(Sophus::SE3d(M3d::Identity(),V3d::Zero()));
         }
 
         ++init_.frame_cnt;
@@ -119,6 +128,8 @@ void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
 
         std::vector<V2d> kp_before, kp_after;
         LKAlignment(cur_frame, kp_before, kp_after);
+
+        //BA(map_->)
 
         cv::Mat display;
         cv::cvtColor(cur_frame->Mat(), display, CV_GRAY2BGR);
@@ -713,4 +724,91 @@ void Viso::LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool
             kp.push_back(pairs[i].uv_cur);
         }
     }
+}
+
+void Viso::BA(){
+	std::cout << "start BA" << std::endl;
+	// build optimization problem
+  	// setup g2o
+  	typedef g2o::BlockSolver<g2o::BlockSolverTraits<6, 3>> Block;  // pose is 6x1, landmark is 3x1
+  	std::unique_ptr<Block::LinearSolverType> linearSolver(
+      	new g2o::LinearSolverDense<Block::PoseMatrixType>()); // linear solver
+
+  	// use levernberg-marquardt here (or you can choose gauss-newton)
+  	g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
+      	g2o::make_unique<Block>(std::move(linearSolver)));
+  	g2o::SparseOptimizer optimizer;     // graph optimizer
+  	optimizer.setAlgorithm(solver);   // solver
+  	optimizer.setVerbose(true);       // open the output
+  
+  	
+  	std::vector<VertexSBAPointXYZ*> points_v;
+  	std::vector<VertexSophus*> cameras_v;
+  	int id=0;
+
+	for (size_t i = 0; i < map_.GetPoints().size(); i++, id++) { //for each mappoint
+		MapPoint::Ptr mp = map_.GetPoints()[i];
+        //V3d mpxyz = mp->GetWorldPos();
+        VertexSBAPointXYZ* p = new VertexSBAPointXYZ;
+      	p->setId(id);
+      	p->setMarginalized(true);
+      	p->setEstimate(mp->GetWorldPos());
+      	std::cout << mp->GetWorldPos() << std::endl;
+      	optimizer.addVertex(p);
+      	points_v.push_back(p);
+        /*for(size_t j = 0; j < mp->GetObservations().size(); j++; id++){ //for each observation
+        	std::vector<std::pair<Keyframe::Ptr, int> > obs = mp->GetObservations()[j];
+
+    	}*/
+    }
+
+    //std::cout << "pose size: " << poses.size() << std::endl;
+    for (size_t i = 0; i < poses.size(); i++, id++) {
+    	VertexSophus* cam = new VertexSophus;
+    	Sophus::SE3d pose = poses[i];
+    	//std::cout << pose.matrix() << std::endl;
+    	cam->setId(id);
+    	if(i == 0) cam->setFixed( true ); //fix the pose of the first frame
+      	cam->setEstimate(pose);
+      	optimizer.addVertex(cam);
+      	cameras_v.push_back(cam);
+    }
+    //id=0;
+    //std::cout << "add edge"<< std::endl;
+    for (size_t i = 0; i < map_.GetPoints().size(); i++) {
+    	MapPoint::Ptr mp = map_.GetPoints()[i];
+    	for(size_t j = 0; j < mp->GetObservations().size(); j++, id++){ //for each observation
+        	std::pair<Keyframe::Ptr, int>  obs = mp->GetObservations()[j];
+        	EdgeObservation* e = new EdgeObservation(K);
+        	e ->setVertex(0,points_v[i]);
+        	e ->setVertex(1,cameras_v[obs.first->GetId()]);
+        	e->setInformation(Eigen::Matrix2d::Identity()); //intensity is a scale?
+        	int idx = obs.second;
+        	V2d xy (obs.first->Keypoints()[idx].pt.x,obs.first->Keypoints()[idx].pt.y);
+        	//std::cout << xy.transpose() << std::endl;
+        	e->setMeasurement(xy);
+        	e->setId( id );
+        	optimizer.addEdge(e);
+    	}
+	}
+
+
+	// perform optimization
+  	std::cout << "optimize!"<< std::endl;
+  	optimizer.initializeOptimization(0);
+  	optimizer.optimize(BA_iteration);
+	std::cout << "end!"<< std::endl;
+  	
+  	for ( int i=0; i < poses.size(); i++ )
+  	{
+     	VertexSophus* pose = dynamic_cast<VertexSophus*> (optimizer.vertex(map_.GetPoints().size()+i));
+     	Sophus::SE3d p_opt = pose->estimate();
+     	poses_opt.push_back(p_opt);
+  	}
+  	/*for ( int i=0; i < map_.GetPoints().size(); i++ )
+  	{
+     	VertexPoint* point = dynamic_cast<VertexPoint*> (optimizer.vertex(i));
+     	V3d point_opt = g->estimate();
+     	map_.GetPoints()[i]->GetWorldPos()=point_opt;
+  	}*/
 }

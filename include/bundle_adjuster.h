@@ -19,171 +19,107 @@
 
 #include "keyframe.h"
 #include "types.h"
-
-class BundleAdjuster {
-    class VertexPoint : public g2o::BaseVertex<3, V3d> {
+using namespace g2o;
+    /*class VertexPoint : public g2o::BaseVertex<3, V3d> {
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+        VertexPoint()
+        {
+        }
 
+        virtual bool read(std::istream& )
+        {
+            //cerr << __PRETTY_FUNCTION__ << " not implemented yet" << endl;
+            return false;
+        }
+
+        virtual bool write(std::ostream& ) const
+        {
+            //cerr << __PRETTY_FUNCTION__ << " not implemented yet" << endl;
+            return false;
+        }
         virtual void setToOriginImpl() override
         {
             // reset to zero
-            _estimate << 0, 0, 0;
+            //_estimate << 0, 0, 0;
         }
 
         virtual void oplusImpl(const double* update) override
         {
             // update
-            _estimate += V3d(update);
+            V3d::ConstMapType v(update);
+            _estimate += v;
         }
-    };
+    };*/
 
     // g2o vertex that use sophus::SE3 as pose
-    class VertexPose : public g2o::BaseVertex<6, Sophus::SE3d> {
-    public:
+    // g2o vertex that use sophus::SE3 as pose
+    class VertexSophus : public g2o::BaseVertex<6, Sophus::SE3d>
+    {
+        public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+        VertexSophus() {}
+
+        ~VertexSophus() {}
+
+        bool read(std::istream &is) {}
+
+        bool write(std::ostream &os) const {}
 
         virtual void setToOriginImpl()
         {
             _estimate = Sophus::SE3d();
         }
 
-        virtual void oplusImpl(const double* update_)
+        virtual void oplusImpl(const double *update_)
         {
-            Eigen::Map<const Eigen::Matrix<double, 6, 1> > update(update_);
+            Eigen::Map<const Eigen::Matrix<double, 6, 1>> update(update_);
             setEstimate(Sophus::SE3d::exp(update) * estimate());
         }
     };
 
-    class EdgeDirectProjection : public g2o::BaseBinaryEdge<16, V16d, VertexPoint, VertexPose> {
+
+    class EdgeObservation : public g2o::BaseBinaryEdge<2, V2d, g2o::VertexSBAPointXYZ, VertexSophus> {
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 
-        EdgeDirectProjection(Keyframe::Ptr srcFrame, Keyframe::Ptr targetFrame)
+        EdgeObservation(M3d K)
         {
-            this->srcFrame = srcFrame;
-            this->targetFrame = targetFrame;
+            this->K_ = K;
         }
 
-        ~EdgeDirectProjection() {}
+        ~EdgeObservation() {}
 
         virtual void computeError() override
         {
-            const VertexPoint* p = static_cast<const VertexPoint*>(vertex(0));
-            const VertexPose* T = static_cast<const VertexPose*>(vertex(1));
-            M3d R = T->estimate().rotationMatrix();
-            V3d t = T->estimate().translation();
+            //double fx, cx, fy, cy;
+            //fx = 517.3; fy = 516.5; cx= 325.1; cy=249.7;
+            const VertexSBAPointXYZ* p = static_cast<const VertexSBAPointXYZ*> ( _vertices[0] );
+            const VertexSophus* c = static_cast<const VertexSophus*> ( _vertices[1] );
+            V3d global = p->estimate();
+            V3d local = c->estimate()*global;
+            double u = local[0]*K_(0,0)/local[2] + K_(0,2);
+            double v = local[1]*K_(1,1)/local[2] + K_(1,2);
+            _error(0,0) = u-_measurement[0];
+            _error(1,0) = v-_measurement[1];
 
-            V3d target_uv1 = targetFrame->K() * (R * p->estimate() + t);
-            target_uv1 /= target_uv1.z();
-            V2d src_uv = srcFrame->Project(p->estimate());
-
-            int idx = 0;
-            bool abort = false;
-            for (int j = -2; (j <= 1) && !abort; ++j) {
-                for (int i = -2; i <= 1; ++i) {
-
-                    float u1 = (float)(target_uv1.x() + (double)i);
-                    float v1 = (float)(target_uv1.y() + (double)j);
-                    float u2 = (float)(src_uv.x() + (double)i);
-                    float v2 = (float)(src_uv.y() + (double)j);
-
-                    if (!targetFrame->IsInside(u1, v1) || !srcFrame->IsInside(u2, v2)) {
-                        setLevel(1);
-                        abort = true;
-                        break;
-                    }
-
-                    _error[idx] = srcFrame->GetPixelValue(u2, v2) - targetFrame->GetPixelValue(u1, v1);
-                    ++idx;
-                }
-            }
+        }
+        virtual bool read(std::istream& /*is*/)
+        {
+            //cerr << __PRETTY_FUNCTION__ << " not implemented yet" << endl;
+            return false;
         }
 
+        virtual bool write(std::ostream& /*os*/) const
+        {
+            //cerr << __PRETTY_FUNCTION__ << " not implemented yet" << endl;
+            return false;
+        }
     private:
-        Keyframe::Ptr targetFrame;
-        Keyframe::Ptr srcFrame;
+        M3d K_;  // the source image
     };
-
-    using Block = g2o::BlockSolver<g2o::BlockSolverTraits<6, 3> >;
-
-public:
-    BundleAdjuster()
-    {
-        std::unique_ptr<Block::LinearSolverType> linearSolver(
-            new g2o::LinearSolverDense<Block::PoseMatrixType>());
-
-        g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(
-            g2o::make_unique<Block>(std::move(linearSolver)));
-
-        optimizer_.setAlgorithm(solver); // solver
-        optimizer_.setVerbose(true); // open the output
-
-        int id = 0;
-
-        points_.reserve(max_points);
-        for (int i = 0; i < max_points; ++i) {
-            VertexPoint* p = new VertexPoint();
-            p->setId(id);
-            p->setMarginalized(true);
-            points_.push_back(p);
-
-            //pv->setEstimate(points[i]);
-
-            if (!optimizer_.addVertex(p)) {
-                std::cerr << "error adding vertex" << std::endl;
-            }
-
-            id++;
-        }
-
-        poses_.reserve(max_poses);
-        for (int i = 0; i < max_poses; ++i) {
-            VertexPose* p = new VertexPose();
-            p->setId(id);
-            poses_.push_back(p);
-
-            //p->setEstimate(poses[j]);
-
-            if (!optimizer_.addVertex(p)) {
-                std::cerr << "error adding vertex" << std::endl;
-            }
-
-            id++;
-        }
-
-        edges_.reserve(max_edges);
-        for (int i = 0; i < max_edges; ++i) {
-            EdgeDirectProjection* e = new EdgeDirectProjection(color[i], images[j]);
-            e->setVertex(0, point_vertices[i]); // first vertex is the point
-            e->setVertex(1, pose_vertices[j]); // second vertex is pose
-            e->setInformation(M16d::Identity());
-
-            if (!optimizer_.addEdge(e)) {
-                std::cerr << "error adding edge" << std::endl;
-                exit(0);
-            }
-        }
-    }
-
-    inline int AddPoint(V3d p) {}
-
-    inline int AddPose(Sophus::SE3d p) {}
-
-    inline void AddEdge(int point, int pose) {}
-
-private:
-    std::vector<VertexPoint*> points_;
-    std::vector<VertexPose*> poses_;
-    std::vector<EdgeDirectProjection*> edges_;
-
-    g2o::SparseOptimizer optimizer_;
-
-    const int max_points = 1000;
-    const int max_poses = 1000;
-    const int max_edges = 1000;
-
-    int id = 0;
-};
+ 
+ 
 
 #endif //VISO_BUNDLE_ADJUSTER_H

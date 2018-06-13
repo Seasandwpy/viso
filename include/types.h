@@ -20,6 +20,7 @@ using M34d = Eigen::Matrix<double, 3, 4>;
 using M16d = Eigen::Matrix<double, 16, 16>;
 using M26d = Eigen::Matrix<double, 2, 6>;
 
+using M2d = Eigen::Matrix2d;
 using M3d = Eigen::Matrix3d;
 using M3f = Eigen::Matrix3f;
 using M3i = Eigen::Matrix3i;

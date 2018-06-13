@@ -6,7 +6,9 @@
 #include "keyframe.h"
 #include "map.h"
 #include "ring_buffer.h"
+#include "bundle_adjuster.h"
 #include <sophus/se3.hpp>
+#include <tuple>
 
 class Viso : public FrameSequence::FrameHandler {
 private:
@@ -20,6 +22,7 @@ private:
     const int fast_thresh = 70;
     const double projection_error_thresh = 5.3;
     const double parallax_thresh = 1;
+    const int BA_iteration = 100;
 
     M3d K;
     M3d K_inv;
@@ -48,6 +51,7 @@ public:
     }
 
     std::vector<Sophus::SE3d> poses;
+    std::vector<Sophus::SE3d> poses_opt;
 
     ~Viso() = default;
 
@@ -106,6 +110,7 @@ private:
 
     void LKAlignment(Keyframe::Ptr current_frame, std::vector<V2d>& kp_before, std::vector<V2d>& kp_after);
     void LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool>& success, std::vector<V2d>& kp, int level);
+    void BA();
 };
 
 #endif
