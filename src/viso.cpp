@@ -49,8 +49,8 @@ void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
 
             int nr_inliers = 0;
             std::vector<V3d> points3d;
-            PoseEstimation2d2d(p1, p2, init_.R, init_.T, init_.success, nr_inliers);
-            Reconstruct(p1, p2, init_.R, init_.T, init_.success, nr_inliers, points3d);
+            PoseEstimation2d2d(p1, p2, init_.R, init_.T, init_.success, nr_inliers, points3d);
+            //Reconstruct(p1, p2, init_.R, init_.T, init_.success, nr_inliers, points3d);
 
             // Visualization
             cv::Mat img;
@@ -144,8 +144,8 @@ void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
     last_frame = cur_frame;
 }
 
-
-void Viso::RecoverPoseHomography(const cv::Mat &H, M3d &R, V3d &T){
+void Viso::RecoverPoseHomography(const cv::Mat& H, M3d& R, V3d& T)
+{
     cv::Mat pose = cv::Mat::eye(3, 4, CV_64FC1); //3x4 matrix
     float norm1 = (float)norm(H.col(0));
     float norm2 = (float)norm(H.col(1));
@@ -175,84 +175,60 @@ void Viso::RecoverPoseHomography(const cv::Mat &H, M3d &R, V3d &T){
 }
 
 // TODO: Move this to a separate class.
-void Viso::PoseEstimation2d2d(std::vector<V3d> kp1, std::vector<V3d> kp2,
+void Viso::PoseEstimation2d2d(std::vector<V3d> p1, std::vector<V3d> p2,
     M3d& R, V3d& T, std::vector<bool>& inliers,
-    int& nr_inliers)
+    int& nr_inliers, std::vector<V3d>& points3d)
 {
+    nr_inliers = 0;
+    std::vector<M3d> rotations;
+    std::vector<V3d> translations;
+
     const double thresh = projection_error_thresh / std::sqrt(K(0, 0) * K(0, 0) + K(1, 1) * K(1, 1));
-    
+
     std::vector<cv::Point2f> kp1_;
     std::vector<cv::Point2f> kp2_;
 
-    for (int i = 0; i < kp1.size(); ++i) {
-        kp1_.push_back({ (float)kp1[i].x(), (float)kp1[i].y() });
-        kp2_.push_back({ (float)kp2[i].x(), (float)kp2[i].y() });
+    for (int i = 0; i < p1.size(); ++i) {
+        kp1_.push_back({ (float)p1[i].x(), (float)p1[i].y() });
+        kp2_.push_back({ (float)p2[i].x(), (float)p2[i].y() });
     }
 
-    int nr_inliers_essential = 0;
     cv::Mat outlier_mask_essential;
-        
     cv::Mat essential = cv::findEssentialMat(
         kp1_, kp2_, 1.0, { 0.0, 0.0 }, CV_FM_RANSAC, 0.99, thresh, outlier_mask_essential);
 
-    if (essential.data == NULL) {
-        nr_inliers_essential = 0;
-    }
-        
-    cv::Mat Rmat_essential, tmat_essential;
+    if (essential.data != NULL) {
+        rotations.push_back(M3d::Identity());
+        translations.push_back(V3d::Zero());
 
-    // This method does the depth check. Only users points which are not masked
-    // out by
-    // the outlier mask.
-    recoverPose(essential, kp1_, kp2_, Rmat_essential, tmat_essential, 1.0, {}, outlier_mask_essential);
-    
-    for (int i = 0; i < inliers.size(); ++i) {
-		nr_inliers_essential += (outlier_mask_essential.at<bool>(i) > 0);
-	}
-    
-	
-#if 0
-	int nr_inliers_homography = 0;
-	cv::Mat outlier_mask_homography;
-    
+        // This method does the depth check. Only users points which are not masked
+        // out by
+        // the outlier mask.
+        cv::Mat R_ess, T_ess;
+        cv::recoverPose(essential, kp1_, kp2_, R_ess, T_ess, 1.0, {}, outlier_mask_essential);
+        cv::cv2eigen(R_ess, rotations[0]);
+        cv::cv2eigen(T_ess, translations[0]);
+    }
+
+//#define USE_HOMOGRAPHY
+#ifdef USE_HOMOGRAPHY
+    cv::Mat outlier_mask_homography;
     cv::Mat homography = cv::findHomography(kp1_, kp2_, CV_RANSAC, thresh, outlier_mask_homography, 2000, 0.99);
 
-    if (homography.data == NULL) {
-        nr_inliers_homography = 0;
-    }
-    
-    cv::Mat rotations, translations, normals;  
-    cv::decomposeHomographyMat(homography, cv::Mat::eye(3, 3, CV_64F), rotations, translations, normals);  
-    
-    cv::Mat Rmat_homography, tmat_homography;
-    
-    nr_inliers_homography = 0;
-#endif
+    if (homography.data != NULL) {
+        std::vector<cv::Mat> rotations_homo, translations_homo, normals;
+        cv::decomposeHomographyMat(homography, cv::Mat::eye(3, 3, CV_64F), rotations_homo, translations_homo, normals);
 
-    inliers = std::vector<bool>(kp1.size());
-
-#if 0
-    if(nr_inliers_essential >= nr_inliers_homography) {
-#endif
-    	for (int i = 0; i < inliers.size(); ++i) {
-			inliers[i] = outlier_mask_essential.at<bool>(i) > 0;
-			nr_inliers += inliers[i];
-		}
-				
-		cv::cv2eigen(Rmat_essential, R);
-		cv::cv2eigen(tmat_essential, T);
-		
-#if 0
-    } else {
-    	for (int i = 0; i < inliers.size(); ++i) {
-			inliers[i] = outlier_mask_homography.at<bool>(i) > 0;
-			nr_inliers += inliers[i];
-		}
-		
-		cv::cv2eigen(Rmat_homography, R);
-		cv::cv2eigen(tmat_homography, T);
+        for (int i = 0; i < rotations_homo.size(); ++i) {
+            rotations.push_back(M3d::Identity());
+            translations.push_back(V3d::Zero());
+            cv::cv2eigen(rotations_homo[i], rotations[rotations.size() - 1]);
+            cv::cv2eigen(translations_homo[i], translations[translations.size() - 1]);
+        }
     }
+
 #endif
+    SelectMotion(p1, p2, rotations, translations, R, T, inliers, nr_inliers, points3d);
 }
 
 // TODO: Move this to a separate class.
@@ -494,23 +470,142 @@ void Viso::Reconstruct(const std::vector<V3d>& p1, const std::vector<V3d>& p2,
             points3d.push_back(P1);
         }
     }
-    
+
     // Normalization
     double mean_depth = 0;
-    for(const auto & p : points3d) {
-    	mean_depth += p.z();
+    for (const auto& p : points3d) {
+        mean_depth += p.z();
     }
-    
-    if(mean_depth != 0) {
-		mean_depth /= points3d.size();  
-		
-		for(auto & p : points3d) {
-			p /= mean_depth;
-			std::cout << p << std::endl;
-		}
-		
-		T /= mean_depth;
-    }     
+
+    if (mean_depth != 0) {
+        mean_depth /= points3d.size();
+
+        for (auto& p : points3d) {
+            p /= mean_depth;
+            std::cout << p << std::endl;
+        }
+
+        T /= mean_depth;
+    }
+}
+void Viso::SelectMotion(const std::vector<V3d>& p1,
+    const std::vector<V3d>& p2,
+    const std::vector<M3d>& rotations,
+    const std::vector<V3d>& translations,
+    M3d& R_out,
+    V3d& T_out,
+    std::vector<bool>& inliers,
+    int& nr_inliers,
+    std::vector<V3d>& points3d)
+{
+    assert(rotations.size() == translations.size());
+
+    int best_nr_inliers = 0;
+    int best_motion = -1;
+    std::vector<bool> best_inliers;
+    std::vector<V3d> best_points;
+
+    for (int m = 0; m < rotations.size(); ++m) {
+        M3d R = rotations[m];
+        V3d T = translations[m];
+        M34d Pi1 = MakePI0();
+        M34d Pi2 = MakePI0() * MakeSE3(R, T);
+        V3d O1 = V3d::Zero();
+        V3d O2 = -R * T;
+
+        inliers.clear();
+        inliers.reserve(p1.size());
+        points3d.clear();
+
+        int j = 0;
+        for (int i = 0; i < p1.size(); ++i) {
+            inliers.push_back(false);
+
+            V3d P1;
+            Triangulate(Pi1, Pi2, p1[i], p2[i], P1);
+
+            // depth test
+            if (P1.z() < 0) {
+                continue;
+            }
+
+            // parallax
+            V3d n1 = P1 - O1;
+            V3d n2 = P1 - O2;
+            double d1 = n1.norm();
+            double d2 = n2.norm();
+
+            double parallax = (n1.transpose() * n2);
+            parallax /= (d1 * d2);
+            parallax = acos(parallax) * 180 / CV_PI;
+            if (parallax > parallax_thresh) {
+                continue;
+            }
+
+            // projection error
+            V3d P1_proj = P1 / P1.z();
+            double dx = (P1_proj.x() - p1[i].x()) * K(0, 0);
+            double dy = (P1_proj.y() - p1[i].y()) * K(1, 1);
+            double projection_error1 = std::sqrt(dx * dx + dy * dy);
+
+            if (projection_error1 > projection_error_thresh) {
+                continue;
+            }
+
+            V3d P2 = R * P1 + T;
+
+            // depth test
+            if (P2.z() < 0) {
+                continue;
+            }
+
+            // projection error
+            V3d P2_proj = P2 / P2.z();
+            dx = (P2_proj.x() - p2[i].x()) * K(0, 0);
+            dy = (P2_proj.y() - p2[i].y()) * K(1, 1);
+            double projection_error2 = std::sqrt(dx * dx + dy * dy);
+
+            if (projection_error2 > projection_error_thresh) {
+                continue;
+            }
+
+            inliers[i] = true;
+            points3d.push_back(P1);
+        }
+
+        if (points3d.size() > best_nr_inliers) {
+            best_nr_inliers = points3d.size();
+            best_inliers = inliers;
+            best_motion = m;
+            best_points = points3d;
+        }
+    }
+
+    nr_inliers = best_nr_inliers;
+    points3d = best_points;
+    inliers = best_inliers;
+
+    if (best_motion != -1) {
+        R_out = rotations[best_motion];
+        T_out = translations[best_motion];
+    }
+
+    // Depth normalization
+    double mean_depth = 0;
+    for (const auto& p : points3d) {
+        mean_depth += p.z();
+    }
+
+    if (mean_depth != 0) {
+        mean_depth /= points3d.size();
+
+        for (auto& p : points3d) {
+            p /= mean_depth;
+            std::cout << p << std::endl;
+        }
+
+        T_out /= mean_depth;
+    }
 }
 
 M26d dPixeldXi(const M3d& K, const M3d& R, const V3d& T, const V3d& P,

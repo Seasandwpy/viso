@@ -19,7 +19,7 @@ private:
     // Some constants.
     const int reinitialize_after = 10;
     const int fast_thresh = 70;
-    const double projection_error_thresh = 5.3;
+    const double projection_error_thresh = 0.3;
     const double parallax_thresh = 1;
 
     M3d K;
@@ -68,9 +68,9 @@ private:
     // meaning that the inverse intrinsic matrix has already been applied to
     // the respective pixel coordinates.
     void PoseEstimation2d2d(
-        std::vector<V3d> points1,
-        std::vector<V3d> points2,
-        M3d& R, V3d& T, std::vector<bool>& inliers, int& nr_inliers);
+        std::vector<V3d> p1,
+        std::vector<V3d> p2,
+        M3d& R, V3d& T, std::vector<bool>& inliers, int& nr_inliers, std::vector<V3d>& points3d);
 
     // Triangulation, see paper "Triangulation", Section 5.1, by Richard I. Hartley, Peter Sturm
     void Triangulate(const M34d& Pi1, const M34d& Pi2, const V3d& x1, const V3d& x2, V3d& P);
@@ -78,6 +78,16 @@ private:
     void Reconstruct(const std::vector<V3d>& kp1,
         const std::vector<V3d>& kp2,
         const M3d& R, V3d& T, std::vector<bool>& inliers, int& nr_inliers, std::vector<V3d>& points3d);
+
+    void SelectMotion(const std::vector<V3d>& p1,
+                      const std::vector<V3d>& p2,
+                      const std::vector<M3d>& rotations,
+                      const std::vector<V3d>& translations,
+                      M3d& R_out,
+                      V3d& T_out,
+                      std::vector<bool>& inliers,
+                      int& nr_inliers,
+                      std::vector<V3d>& points3d);
     
     void RecoverPoseHomography(const cv::Mat &H, M3d &R, V3d &T);
 
