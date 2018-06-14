@@ -27,7 +27,7 @@ private:
     M3d K;
     M3d K_inv;
 
-    Keyframe::Ptr last_frame;
+    //Keyframe::Ptr last_frame;
 
     struct Initialization {
         Keyframe::Ptr ref_frame;
@@ -52,6 +52,7 @@ public:
 
     std::vector<Sophus::SE3d> poses;
     std::vector<Sophus::SE3d> poses_opt;
+    Keyframe::Ptr last_frame;
 
     ~Viso() = default;
 

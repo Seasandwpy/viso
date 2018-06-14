@@ -3,7 +3,10 @@
 #include "viso.h"
 #include <iostream>
 #include <pangolin/pangolin.h>
-
+#include <fstream>
+#include <iostream>
+#include <vector>
+using namespace std;
 struct PangoState {
     pangolin::OpenGlRenderState s_cam;
     pangolin::View d_cam;
@@ -30,7 +33,27 @@ int main(int argc, char const* argv[])
     pango_state.d_cam = pangolin::CreateDisplay()
                             .SetBounds(0.0, 1.0, pangolin::Attach::Pix(175), 1.0, -1024.0f / 768.0f)
                             .SetHandler(new pangolin::Handler3D(pango_state.s_cam));
-
+    //
+    //Process data set
+    //
+    string dataset_dir(argv[1]);
+    ifstream fin ( dataset_dir+"/rgb.txt" );
+    if ( !fin )
+    {
+        cout<<"no file found!"<<endl;
+        return 1;
+    }
+    vector<string> rgb_files;
+    vector<string> rgb_times;
+    while ( !fin.eof() )
+    {
+        string rgb_time, rgb_file;
+        fin>>rgb_time>>rgb_file;
+        rgb_times.push_back ( rgb_time);
+        rgb_files.push_back ( dataset_dir+"/"+rgb_file );
+        if ( fin.good() == false )
+            break;
+    }
     //
     // Run main loop.
     //
@@ -38,11 +61,20 @@ int main(int argc, char const* argv[])
     //    Viso viso(200.0, 200.0, 240.0, 240.0);
     //    FrameSequence sequence("", &viso);
     Viso viso(517.3, 516.5, 325.1, 249.7);
-    FrameSequence sequence("rgb/", &viso);
-
+    FrameSequence sequence("rgb/", &viso, rgb_files, rgb_times);
+    double qx, qy, qz, qw, x, y, z;
+    ofstream out(dataset_dir+"/estimation.txt");
     while (!pangolin::ShouldQuit()) {
         sequence.RunOnce();
         DrawMap(&pango_state, viso.GetPoints(), viso.poses, viso.poses_opt);
+        Eigen::Quaternion<double> q(viso.last_frame->GetR());
+        V3d t(viso.last_frame->GetT());
+        q.normalize();
+        qx=q.x(); qy=q.y(); qz=q.z(); qw=q.w();
+        cout << viso.last_frame->times_<<" "<<t[0]<<" "<<t[1]<<" "<<t[2]<<" "<<qx<<" "<<qy<<" "<<qz<<" "<<qw<<endl;
+        out.open(dataset_dir+"/estimation.txt", std::ofstream::out | std::ofstream::app);
+        out<<viso.last_frame->times_<<" "<<t[0]<<" "<<t[1]<<" "<<t[2]<<" "<<qx<<" "<<qy<<" "<<qz<<" "<<qw<<endl;
+        out.close();
     }
 
     return 0;

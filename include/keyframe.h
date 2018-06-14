@@ -24,9 +24,9 @@ private:
 
 public:
     using Ptr = std::shared_ptr<Keyframe>;
-
-    Keyframe(cv::Mat mat)
-        : mat_(mat)
+    std::string times_;
+    Keyframe(cv::Mat mat, std::string timestamp)
+        : mat_(mat), times_(timestamp)
     {
         id_ = next_id_;
         next_id_++;
