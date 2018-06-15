@@ -18,9 +18,12 @@ private:
 
     // Some constants.
     const int reinitialize_after = 10;
-    const int fast_thresh = 70;
-    const double projection_error_thresh = 0.3;
+    const int fast_thresh = 50;
+    const double projection_error_thresh = .3;
     const double parallax_thresh = 1;
+    const double disparity_squared_thresh = 15 * 15; // squared, 15 pixels
+    const double half_patch_size = 4;
+    const double photometric_error_thresh = (half_patch_size * 2) * (half_patch_size * 2) * 15 * 15; // squared error for the whole patch, 15 gray values per pixel
 
     M3d K;
     M3d K_inv;

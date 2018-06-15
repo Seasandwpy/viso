@@ -94,7 +94,7 @@ void Viso::OnNewFrame(Keyframe::Ptr cur_frame)
                         ++cnt;
                     }
                 }
-                state_ = kRunning;
+                state_ = kFinished;
                 break;
             }
         } else {
@@ -180,22 +180,46 @@ void Viso::PoseEstimation2d2d(std::vector<V3d> p1, std::vector<V3d> p2,
     int& nr_inliers, std::vector<V3d>& points3d)
 {
     nr_inliers = 0;
+
+    if(p1.size() < 10) {
+      return;
+    }
+
     std::vector<M3d> rotations;
     std::vector<V3d> translations;
 
     const double thresh = projection_error_thresh / std::sqrt(K(0, 0) * K(0, 0) + K(1, 1) * K(1, 1));
+    const double f = (K(0, 0) + K(1, 1)) / 2;
 
-    std::vector<cv::Point2f> kp1_;
-    std::vector<cv::Point2f> kp2_;
+    std::vector<cv::Point2f> p1_;
+    std::vector<cv::Point2f> p2_;
+
+    double disparity_squared = 0;
 
     for (int i = 0; i < p1.size(); ++i) {
-        kp1_.push_back({ (float)p1[i].x(), (float)p1[i].y() });
-        kp2_.push_back({ (float)p2[i].x(), (float)p2[i].y() });
+        double dx = p2[i].x() - p1[i].x();
+        double dy = p2[i].y() - p1[i].y();                
+        disparity_squared += dx * dx + dy * dy;
+
+        p1_.push_back({ (float)p1[i].x(), (float)p1[i].y() });
+        p2_.push_back({ (float)p2[i].x(), (float)p2[i].y() });
+    }
+
+    if(disparity_squared != 0) {
+      disparity_squared /= p1.size();
+      disparity_squared *= f * f;
+    }
+
+    std::cout << "Disparity sq.: " << disparity_squared << "\n";
+    std::cout << "Tracking : " << p1.size() << "\n";
+
+    if(disparity_squared < disparity_squared_thresh) {
+      return;
     }
 
     cv::Mat outlier_mask_essential;
     cv::Mat essential = cv::findEssentialMat(
-        kp1_, kp2_, 1.0, { 0.0, 0.0 }, CV_FM_RANSAC, 0.99, thresh, outlier_mask_essential);
+        p1_, p2_, 1.0, { 0.0, 0.0 }, CV_FM_RANSAC, 0.99, thresh, outlier_mask_essential);
 
     if (essential.data != NULL) {
         rotations.push_back(M3d::Identity());
@@ -205,15 +229,15 @@ void Viso::PoseEstimation2d2d(std::vector<V3d> p1, std::vector<V3d> p2,
         // out by
         // the outlier mask.
         cv::Mat R_ess, T_ess;
-        cv::recoverPose(essential, kp1_, kp2_, R_ess, T_ess, 1.0, {}, outlier_mask_essential);
+        cv::recoverPose(essential, p1_, p2_, R_ess, T_ess, 1.0, {}, outlier_mask_essential);
         cv::cv2eigen(R_ess, rotations[0]);
         cv::cv2eigen(T_ess, translations[0]);
     }
 
-//#define USE_HOMOGRAPHY
+#define USE_HOMOGRAPHY
 #ifdef USE_HOMOGRAPHY
     cv::Mat outlier_mask_homography;
-    cv::Mat homography = cv::findHomography(kp1_, kp2_, CV_RANSAC, thresh, outlier_mask_homography, 2000, 0.99);
+    cv::Mat homography = cv::findHomography(p1_, p2_, CV_RANSAC, thresh, outlier_mask_homography, 2000, 0.99);
 
     if (homography.data != NULL) {
         std::vector<cv::Mat> rotations_homo, translations_homo, normals;
@@ -239,7 +263,6 @@ void Viso::OpticalFlowSingleLevel(const cv::Mat& img1, const cv::Mat& img2,
 {
 
     // parameters
-    int half_patch_size = 4;
     int iterations = 10;
     bool have_initial = !kp2.empty();
 
@@ -296,6 +319,7 @@ void Viso::OpticalFlowSingleLevel(const cv::Mat& img1, const cv::Mat& img2,
                 succ = false;
                 break;
             }
+
             if (iter > 0 && cost > lastCost) {
                 break;
             }
@@ -304,7 +328,12 @@ void Viso::OpticalFlowSingleLevel(const cv::Mat& img1, const cv::Mat& img2,
             dx += update[0];
             dy += update[1];
             lastCost = cost;
-            succ = true;
+
+            if(lastCost > photometric_error_thresh) {
+              succ = false;                
+            } else {
+              succ = true;
+            }
         }
 
         success.push_back(succ);
@@ -639,7 +668,6 @@ void Viso::DirectPoseEstimationSingleLayer(int level,
     const double delta_thresh = 0.005;
 
     // parameters
-    int half_patch_size = 4;
     int iterations = 100;
 
     double cost = 0, lastCost = 0;
@@ -818,10 +846,8 @@ void Viso::LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool
 {
     // parameters
     const bool inverse = true;
-    const int half_patch_size = 4;
     int iterations = 100;
     const double scales[4] = { 1.0, 0.5, 0.25, 0.125 };
-    const double cost_thresh = (half_patch_size * 2) * (half_patch_size * 2) * 100.0;
 
     success.clear();
     kp.clear();
@@ -879,12 +905,13 @@ void Viso::LKAlignmentSingle(std::vector<AlignmentPair>& pairs, std::vector<bool
             dx += update[0];
             dy += update[1];
             lastCost = cost;
-            succ = true;
-        }
 
-        if (lastCost > cost_thresh) {
-            succ = false;
-        }
+            if (lastCost > photometric_error_thresh) {
+              succ = false;
+            } else {
+              succ = true;
+            }
+        }      
 
         success.push_back(succ);
         pair.uv_cur += V2d{ dx / scales[level], dy / scales[level] };
